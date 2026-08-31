@@ -1,4 +1,4 @@
-import { IsNumber, IsArray, ValidateNested, Min } from 'class-validator';
+import { IsNumber, IsArray, ValidateNested, Min, IsOptional, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -28,4 +28,9 @@ export class CreateQuoteDto {
   @ValidateNested({ each: true })
   @Type(() => CreateQuoteItemDto)
   items!: CreateQuoteItemDto[];
+
+  @ApiProperty({ example: '2026-12-31T23:59:59Z', required: false })
+  @IsOptional()
+  @IsDateString()
+  valid_until?: string;
 }

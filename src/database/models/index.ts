@@ -7,6 +7,7 @@ import { OrderItem, initOrderItem } from './order-item.model';
 import { Quote, initQuote } from './quote.model';
 import { QuoteItem, initQuoteItem } from './quote-item.model';
 import { Invoice, initInvoice } from './invoice.model';
+import { InvoiceSequence, initInvoiceSequence } from './invoicesequence.model';
 
 export const setupModels = (sequelize: Sequelize) => {
   // Init models
@@ -18,6 +19,7 @@ export const setupModels = (sequelize: Sequelize) => {
   initQuote(sequelize);
   initQuoteItem(sequelize);
   initInvoice(sequelize);
+  initInvoiceSequence(sequelize);
 
   // Setup associations
   
@@ -62,5 +64,6 @@ export {
   OrderItem,
   Quote,
   QuoteItem,
-  Invoice
+  Invoice,
+  InvoiceSequence
 };

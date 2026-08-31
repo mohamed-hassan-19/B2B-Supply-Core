@@ -21,9 +21,16 @@ export class InvoiceController {
 
   @Post('generate/:orderId')
   @Roles('super_admin', 'finance')
-  @ApiOperation({ summary: 'Generate an invoice for a delivered order' })
+  @ApiOperation({ summary: 'Deprecated. Do not use.' })
   generateInvoice(@Param('orderId') orderId: string) {
     return this.invoiceService.generateInvoice(+orderId);
+  }
+
+  @Get(':id/pdf')
+  @Roles('super_admin', 'finance')
+  @ApiOperation({ summary: 'Get or generate the PDF for an invoice' })
+  getPdf(@Param('id') id: string) {
+    return this.invoiceService.getPdf(+id);
   }
 
   @Patch(':id/pay')

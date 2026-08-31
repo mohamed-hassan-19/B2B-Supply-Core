@@ -7,7 +7,7 @@ export class QuoteService {
     return Quote.findAll({ order: [['id', 'DESC']] });
   }
 
-  async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number }[]) {
+  async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number }[], validUntil?: string) {
     const client = await Client.findByPk(clientId);
     if (!client) {
       throw new NotFoundException(`Client with ID ${clientId} not found`);
@@ -22,7 +22,8 @@ export class QuoteService {
     try {
       const quote = await Quote.create({
         client_id: client.id,
-        status: 'pending' // pending = draft
+        status: 'pending', // pending = draft
+        valid_until: validUntil || null
       }, { transaction: t });
 
       for (const item of items) {

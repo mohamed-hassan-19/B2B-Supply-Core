@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Order, OrderItem, Product, Client } from '../../database/models';
+import { Order, OrderItem, Product, Client, Invoice } from '../../database/models';
 
 @Injectable()
 export class OrderService {
@@ -74,6 +74,11 @@ export class OrderService {
             await product.save({ transaction: t });
           }
         }
+      }
+
+      const invoice = await Invoice.findOne({ where: { order_id: order.id }, transaction: t, lock: t.LOCK.UPDATE });
+      if (invoice) {
+        await invoice.update({ payment_status: 'void' }, { transaction: t });
       }
 
       await order.update({ status: 'cancelled' }, { transaction: t });

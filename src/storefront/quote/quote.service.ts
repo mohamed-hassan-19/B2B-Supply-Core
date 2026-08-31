@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Quote, QuoteItem, Order, OrderItem, Product, Client, Invoice } from '../../database/models';
+import { Quote, QuoteItem, Order, OrderItem, Product, Client, Invoice, InvoiceSequence } from '../../database/models';
 import { Op } from 'sequelize';
+import { PdfService } from '../../admin/invoice/pdf.service';
 
 @Injectable()
 export class QuoteService {
+  constructor(private readonly pdfService: PdfService) {}
+
   async findAll(clientId: number) {
     return Quote.findAll({
       where: { client_id: clientId, status: 'sent' },
@@ -27,6 +30,13 @@ export class QuoteService {
 
       if (!quote) throw new NotFoundException('Quote not found');
       if (quote.status !== 'sent') throw new BadRequestException(`Cannot accept quote in '${quote.status}' status`);
+
+      if (quote.valid_until && new Date(quote.valid_until) < new Date()) {
+        quote.status = 'expired';
+        await quote.save({ transaction: t });
+        await t.commit();
+        throw new BadRequestException('This quote has expired.');
+      }
 
       const client = await Client.findByPk(clientId, { transaction: t, lock: t.LOCK.UPDATE });
       if (!client || client.status !== 'approved') {
@@ -84,21 +94,11 @@ export class QuoteService {
           include: [{ model: Order, where: { client_id: client.id }, attributes: [] }],
           transaction: t
         });
-        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || inv.amount), 0);
 
-        const activeCreditOrders = await Order.findAll({
-          where: {
-            client_id: client.id,
-            payment_method: 'Credit',
-            status: { [Op.notIn]: ['delivered', 'cancelled'] }
-          },
-          transaction: t
-        });
-        const activeOrdersTotal = activeCreditOrders.reduce((sum, ord) => sum + Number(ord.total_amount), 0);
-
-        const totalExposure = unpaidInvoiceTotal + activeOrdersTotal + totalAmount;
+        const totalExposure = unpaidInvoiceTotal + totalAmount;
         if (totalExposure > client.credit_limit) {
-          throw new BadRequestException(`Credit limit exceeded by quote acceptance. Total exposure would be $${totalExposure}`);
+          throw new BadRequestException(`Credit limit exceeded by quote acceptance. Total exposure would be £${totalExposure}`);
         }
       }
 
@@ -120,7 +120,56 @@ export class QuoteService {
       // 5. Update Quote
       await quote.update({ status: 'accepted', order_id: order.id }, { transaction: t });
 
+      // 6. Create the Invoice automatically
+      const currentYear = new Date().getFullYear();
+      await InvoiceSequence.findOrCreate({
+        where: { year: currentYear },
+        defaults: { last_value: 0 },
+        transaction: t
+      });
+      const sequence = await InvoiceSequence.findOne({
+        where: { year: currentYear },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      });
+      
+      const nextVal = sequence!.last_value + 1;
+      sequence!.last_value = nextVal;
+      await sequence!.save({ transaction: t });
+
+      const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
+      const taxRate = 0.14;
+      const subtotal = totalAmount;
+      const taxAmount = subtotal * taxRate;
+      const grandTotal = subtotal + taxAmount;
+
+      const invoice = await Invoice.create({
+        invoice_number: invoiceNumber,
+        order_id: order.id,
+        amount: grandTotal,
+        subtotal: subtotal,
+        tax_rate: taxRate,
+        tax_amount: taxAmount,
+        grand_total: grandTotal,
+        currency: 'EGP',
+        payment_method: paymentMethod,
+        sales_order_reference: `SO-${order.id}`,
+        customer_tax_id: client.tax_registration || null,
+        payment_status: 'pending'
+      }, { transaction: t });
+
       await t.commit();
+
+      // 7. Non-blocking PDF generation
+      try {
+        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData);
+        invoice.pdf_url = pdfUrl;
+        invoice.pdf_generated_at = new Date();
+        await invoice.save();
+      } catch (err) {
+        console.error('Failed to generate PDF for accepted quote order', order.id, err);
+      }
+
       return order;
     } catch (error) {
       await t.rollback();
@@ -132,6 +181,10 @@ export class QuoteService {
     const quote = await Quote.findOne({ where: { id: quoteId, client_id: clientId } });
     if (!quote) throw new NotFoundException('Quote not found');
     if (quote.status !== 'sent') throw new BadRequestException(`Cannot reject quote in '${quote.status}' status`);
+
+    if (quote.valid_until && new Date(quote.valid_until) < new Date()) {
+      return quote.update({ status: 'expired' });
+    }
 
     return quote.update({ status: 'rejected' });
   }

@@ -1,10 +1,13 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Sequelize, Op } from 'sequelize';
-import { Client, Product, Order, OrderItem, Invoice } from '../../database/models';
+import { Client, Product, Order, OrderItem, Invoice, InvoiceSequence } from '../../database/models';
 import { CreateOrderDto } from './order.dto';
+import { PdfService } from '../../admin/invoice/pdf.service';
 
 @Injectable()
 export class OrderService {
+  constructor(private readonly pdfService: PdfService) {}
+
   async createOrder(clientId: number, dto: CreateOrderDto) {
     if (!Product.sequelize) {
       throw new Error('Sequelize instance not found');
@@ -22,16 +25,12 @@ export class OrderService {
         throw new ForbiddenException(`Client account is ${client.status}. Only approved clients can place orders.`);
       }
 
-
-
       let totalAmount = 0;
       const orderItemsData: any[] = [];
 
       // 2. Process Items and Lock Rows
-      // To avoid deadlocks, we should order the product IDs before locking them
       const productIds = dto.items.map(i => i.productId).sort((a, b) => a - b);
       
-      // Fetch all required products with an exclusive lock
       const products = await Product.findAll({
         where: { id: productIds },
         transaction: t,
@@ -60,13 +59,12 @@ export class OrderService {
         totalAmount += Number(product.price) * item.quantity;
 
         orderItemsData.push({
-          product_id: product.id, // we might not even have product_id FK strictly since we snapshot name, but let's keep it if FK exists
+          product_id: product.id,
           product_name: product.name,
           quantity: item.quantity,
           unit_price: product.price,
         });
 
-        // Decrement stock (will be saved when transaction commits)
         product.stock_level -= item.quantity;
         await product.save({ transaction: t });
       }
@@ -77,9 +75,6 @@ export class OrderService {
           throw new BadRequestException('Client is not eligible for Credit payment method. No credit limit assigned.');
         }
 
-        // Sum unpaid invoices for this client
-        // Invoices are tied to orders, but we can query by order's client_id using an include, or more easily:
-        // Wait, Invoice model only has order_id. We must join Order to filter by client_id.
         const unpaidInvoices = await Invoice.findAll({
           where: { payment_status: { [Op.ne]: 'paid' } },
           include: [{
@@ -89,28 +84,16 @@ export class OrderService {
           }],
           transaction: t
         });
-        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || inv.amount), 0);
 
-        // Sum uninvoiced orders (Credit method, not delivered, not cancelled)
-        const activeCreditOrders = await Order.findAll({
-          where: {
-            client_id: client.id,
-            payment_method: 'Credit',
-            status: { [Op.notIn]: ['delivered', 'cancelled'] }
-          },
-          transaction: t
-        });
-        const activeOrdersTotal = activeCreditOrders.reduce((sum, ord) => sum + Number(ord.total_amount), 0);
-
-        const totalExposure = unpaidInvoiceTotal + activeOrdersTotal + totalAmount;
+        const totalExposure = unpaidInvoiceTotal + totalAmount;
 
         if (totalExposure > client.credit_limit) {
           throw new BadRequestException(
-            `Credit limit exceeded. Limit: $${client.credit_limit}, ` +
-            `Unpaid Invoices: $${unpaidInvoiceTotal}, ` +
-            `Active Orders: $${activeOrdersTotal}, ` +
-            `New Order: $${totalAmount}. ` +
-            `Total Exposure: $${totalExposure}`
+            `Credit limit exceeded. Limit: £${client.credit_limit}, ` +
+            `Unpaid Invoices: £${unpaidInvoiceTotal}, ` +
+            `New Order: £${totalAmount}. ` +
+            `Total Exposure: £${totalExposure}`
           );
         }
       }
@@ -131,7 +114,58 @@ export class OrderService {
         }, { transaction: t });
       }
 
+      // 6. Create the Invoice automatically
+      const currentYear = new Date().getFullYear();
+      
+      // Upsert sequence row securely
+      await InvoiceSequence.findOrCreate({
+        where: { year: currentYear },
+        defaults: { last_value: 0 },
+        transaction: t
+      });
+      const sequence = await InvoiceSequence.findOne({
+        where: { year: currentYear },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      });
+      
+      const nextVal = sequence!.last_value + 1;
+      sequence!.last_value = nextVal;
+      await sequence!.save({ transaction: t });
+
+      const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
+      const taxRate = 0.14;
+      const subtotal = totalAmount;
+      const taxAmount = subtotal * taxRate;
+      const grandTotal = subtotal + taxAmount;
+
+      const invoice = await Invoice.create({
+        invoice_number: invoiceNumber,
+        order_id: order.id,
+        amount: grandTotal,
+        subtotal: subtotal,
+        tax_rate: taxRate,
+        tax_amount: taxAmount,
+        grand_total: grandTotal,
+        currency: 'EGP',
+        payment_method: dto.paymentMethod,
+        sales_order_reference: `SO-${order.id}`,
+        customer_tax_id: client.tax_registration || null,
+        payment_status: 'pending'
+      }, { transaction: t });
+
       await t.commit();
+
+      // 7. Non-blocking PDF generation
+      try {
+        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData);
+        invoice.pdf_url = pdfUrl;
+        invoice.pdf_generated_at = new Date();
+        await invoice.save();
+      } catch (err) {
+        console.error('Failed to generate PDF for order', order.id, err);
+      }
+
       return order;
     } catch (error) {
       await t.rollback();
