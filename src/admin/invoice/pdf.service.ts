@@ -55,8 +55,11 @@ export class PdfService {
         const textOptions = { features: ['rtla'] } as any;
         doc.text(`${client.company_name}`, textOptions);
         doc.text(`${client.email}`);
+        if (client.commercial_registration) {
+          doc.text(`Commercial Registration: ${client.commercial_registration}`);
+        }
         if (client.tax_registration) {
-          doc.text(`Tax ID: ${client.tax_registration}`);
+          doc.text(`Tax Registration: ${client.tax_registration}`);
         }
         doc.moveDown(2);
 

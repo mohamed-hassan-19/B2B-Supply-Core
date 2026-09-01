@@ -13,10 +13,17 @@ export class InvoiceController {
   constructor(private readonly invoiceService: InvoiceService) {}
 
   @Get()
-  @Roles('super_admin', 'finance')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all invoices' })
   findAll() {
     return this.invoiceService.findAll();
+  }
+
+  @Get(':id')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
+  @ApiOperation({ summary: 'Get a single invoice by ID' })
+  findOne(@Param('id') id: string) {
+    return this.invoiceService.findOne(+id);
   }
 
   @Post('generate/:orderId')
@@ -27,7 +34,7 @@ export class InvoiceController {
   }
 
   @Get(':id/pdf')
-  @Roles('super_admin', 'finance')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'Get or generate the PDF for an invoice' })
   getPdf(@Param('id') id: string) {
     return this.invoiceService.getPdf(+id);

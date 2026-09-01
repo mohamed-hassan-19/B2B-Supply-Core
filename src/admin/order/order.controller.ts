@@ -13,7 +13,7 @@ export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
   @Get()
-  @Roles('super_admin', 'sales', 'warehouse', 'finance')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all orders' })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'client_id', required: false, type: Number })
@@ -22,7 +22,7 @@ export class OrderController {
   }
 
   @Get(':id')
-  @Roles('super_admin', 'sales', 'warehouse', 'finance')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'View order details' })
   findOne(@Param('id') id: string) {
     return this.orderService.findOne(+id);

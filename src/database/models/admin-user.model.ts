@@ -5,7 +5,7 @@ export class AdminUser extends Model {
   declare name: string;
   declare email: string;
   declare password_hash: string;
-  declare role: 'super_admin' | 'sales' | 'warehouse' | 'finance';
+  declare role: 'super_admin' | 'sales' | 'warehouse' | 'finance' | 'content' | 'operator';
   declare is_active: boolean;
 
   declare readonly createdAt: Date;
@@ -19,7 +19,7 @@ export const initAdminUser = (sequelize: any) => {
       name: { type: DataTypes.STRING, allowNull: false },
       email: { type: DataTypes.STRING, allowNull: false, unique: true },
       password_hash: { type: DataTypes.STRING, allowNull: false },
-      role: { type: DataTypes.ENUM('super_admin', 'sales', 'warehouse', 'finance'), allowNull: false },
+      role: { type: DataTypes.ENUM('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator'), allowNull: false },
       is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },
     { sequelize, modelName: 'AdminUser' }

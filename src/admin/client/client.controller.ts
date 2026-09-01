@@ -14,7 +14,7 @@ export class ClientController {
   constructor(private readonly clientService: ClientService) {}
 
   @Get()
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List clients' })
   @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected'] })
   findAll(@Query('status') status?: string) {
@@ -22,7 +22,7 @@ export class ClientController {
   }
 
   @Get(':id')
-  @Roles('super_admin', 'sales', 'finance')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'Get client details by ID' })
   findOne(@Param('id') id: string) {
     return this.clientService.findOne(+id);

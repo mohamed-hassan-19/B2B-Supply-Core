@@ -12,6 +12,17 @@ export class InvoiceService {
     });
   }
 
+  async findOne(id: number) {
+    const invoice = await Invoice.findByPk(id);
+    if (!invoice) throw new NotFoundException(`Invoice with ID ${id} not found`);
+
+    const order = await Order.findByPk(invoice.order_id);
+    const client = order ? await Client.findByPk(order.client_id) : null;
+    const items = order ? await OrderItem.findAll({ where: { order_id: order.id } }) : [];
+
+    return { invoice, order, client, items };
+  }
+
   async generateInvoice(orderId: number) {
     throw new BadRequestException('Manual invoice generation is deprecated. Invoices are now created automatically at checkout.');
   }

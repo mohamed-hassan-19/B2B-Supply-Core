@@ -17,7 +17,7 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Create a new product' })
   @ApiResponse({ status: 201, description: 'Product created.' })
   @ApiConsumes('multipart/form-data', 'application/json')
@@ -45,21 +45,21 @@ export class ProductController {
   }
 
   @Get()
-  @Roles('super_admin', 'sales', 'warehouse')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all products (including inactive)' })
   findAll() {
     return this.productService.findAll();
   }
 
   @Get(':id')
-  @Roles('super_admin', 'sales', 'warehouse')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'Get product by ID' })
   findOne(@Param('id') id: string) {
     return this.productService.findOne(+id);
   }
 
   @Put(':id')
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Update product details (excluding stock)' })
   @ApiConsumes('multipart/form-data', 'application/json')
   @UseInterceptors(FileInterceptor('file', {
@@ -87,21 +87,21 @@ export class ProductController {
   }
 
   @Patch(':id/stock')
-  @Roles('super_admin', 'warehouse')
+  @Roles('super_admin', 'warehouse', 'content')
   @ApiOperation({ summary: 'Update product stock level' })
   updateStock(@Param('id') id: string, @Body() updateStockDto: UpdateStockDto) {
     return this.productService.updateStock(+id, updateStockDto);
   }
 
   @Delete(':id')
-  @Roles('super_admin')
+  @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Soft delete a product' })
   remove(@Param('id') id: string) {
     return this.productService.remove(+id);
   }
 
   @Post('upload-image')
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Upload a product image' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file', {

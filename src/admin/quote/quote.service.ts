@@ -4,7 +4,10 @@ import { Quote, QuoteItem, Client, Product } from '../../database/models';
 @Injectable()
 export class QuoteService {
   async findAll() {
-    return Quote.findAll({ order: [['id', 'DESC']] });
+    return Quote.findAll({ 
+      include: [{ model: Client, attributes: ['company_name'] }],
+      order: [['id', 'DESC']] 
+    });
   }
 
   async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number }[], validUntil?: string) {

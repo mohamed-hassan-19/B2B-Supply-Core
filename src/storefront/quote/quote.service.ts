@@ -172,7 +172,11 @@ export class QuoteService {
 
       return order;
     } catch (error) {
-      await t.rollback();
+      try {
+        await t.rollback();
+      } catch (rollbackError) {
+        // Ignore rollback error if already committed/rolled back
+      }
       throw error;
     }
   }

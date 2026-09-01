@@ -10,6 +10,7 @@ export class OrderService {
 
     return Order.findAll({
       where,
+      include: [{ model: Client, attributes: ['company_name'] }],
       order: [['id', 'DESC']]
     });
   }

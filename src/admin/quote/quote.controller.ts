@@ -14,21 +14,21 @@ export class QuoteController {
   constructor(private readonly quoteService: QuoteService) {}
 
   @Get()
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all quotes' })
   findAll() {
     return this.quoteService.findAll();
   }
 
   @Post()
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'sales', 'operator')
   @ApiOperation({ summary: 'Draft a new quote' })
   create(@Body() createQuoteDto: CreateQuoteDto) {
     return this.quoteService.createQuote(createQuoteDto.clientId, createQuoteDto.items, createQuoteDto.valid_until);
   }
 
   @Patch(':id/send')
-  @Roles('super_admin', 'sales')
+  @Roles('super_admin', 'sales', 'operator')
   @ApiOperation({ summary: 'Send quote to client' })
   send(@Param('id') id: string) {
     return this.quoteService.sendQuote(+id);
