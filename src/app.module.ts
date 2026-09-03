@@ -47,6 +47,13 @@ const databaseProvider = {
     } catch (error) {
       console.error('Unable to connect to the database:', error);
     }
+
+    try {
+      await sequelize.sync({ force: false });
+      console.log('All tables synced successfully.');
+    } catch (error) {
+      console.error('Sync error:', error); 
+    }
     
     return sequelize;
   },
