@@ -28,6 +28,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  // Sync database tables
+  const sequelize = app.get('SEQUELIZE');
+  try {
+    await sequelize.sync({ force: false });
+    console.log('All tables synced successfully.');
+  } catch (error) {
+    console.error('Sync error:', error);
+  }
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
