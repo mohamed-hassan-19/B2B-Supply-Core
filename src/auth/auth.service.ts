@@ -26,7 +26,7 @@ export class AuthService {
   }
 
   async loginAdmin(admin: any) {
-    const payload = { email: admin.email, id: admin.id, role: admin.role, type: 'admin' };
+    const payload = { email: admin.email, id: admin.id, role: admin.role, type: 'admin', name: admin.name };
     return {
       access_token: this.jwtService.sign(payload),
     };
@@ -54,6 +54,10 @@ export class AuthService {
       password_hash: password_hash,
       commercial_registration: data.commercial_registration,
       tax_registration: data.tax_registration,
+      contact_details: {
+        contact_name: data.contact_name,
+        phone: data.contact_phone
+      },
       status: 'pending'
     });
 

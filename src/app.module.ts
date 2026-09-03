@@ -11,6 +11,9 @@ import { OrderModule } from './admin/order/order.module';
 import { InvoiceModule } from './admin/invoice/invoice.module';
 import { QuoteModule } from './admin/quote/quote.module';
 import { AdminUserModule } from './admin/admin-user/admin-user.module';
+import { CategoryModule } from './admin/category/category.module';
+import { ReportsModule } from './admin/reports/reports.module';
+import { IncidentModule } from './admin/incident/incident.module';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -43,7 +46,7 @@ const databaseProvider = {
 };
 
 @Module({
-  imports: [AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule],
+  imports: [AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule, CategoryModule, ReportsModule, IncidentModule],
   controllers: [AppController],
   providers: [AppService, databaseProvider],
   exports: ['SEQUELIZE'],

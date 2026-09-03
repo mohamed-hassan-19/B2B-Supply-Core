@@ -28,10 +28,10 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ example: 'Valves', required: false })
+  @ApiProperty({ example: 1, required: false })
   @IsOptional()
-  @IsString()
-  category?: string;
+  @IsNumber()
+  category_id?: number;
 
   @ApiProperty({ example: ['http://example.com/image.jpg'], required: false })
   @IsOptional()
@@ -60,6 +60,13 @@ export class CreateProductDto {
   @Min(0)
   @Type(() => Number)
   stock_level?: number;
+
+  @ApiProperty({ example: 20, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  low_stock_threshold?: number;
 }
 
 export class UpdateProductDto {
@@ -73,10 +80,10 @@ export class UpdateProductDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ example: 'Valves', required: false })
+  @ApiProperty({ example: 1, required: false })
   @IsOptional()
-  @IsString()
-  category?: string;
+  @IsNumber()
+  category_id?: number;
 
   @ApiProperty({ example: ['http://example.com/image2.jpg'], required: false })
   @IsOptional()
@@ -99,6 +106,20 @@ export class UpdateProductDto {
   @Validate(IsGreaterThanConstraint, ['price'])
   @Type(() => Number)
   original_price?: number;
+
+  @ApiProperty({ example: 20, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  low_stock_threshold?: number;
+
+  @ApiProperty({ example: 100, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  stock_level?: number;
 }
 
 export class UpdateStockDto {

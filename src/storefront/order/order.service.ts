@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Sequelize, Op } from 'sequelize';
-import { Client, Product, Order, OrderItem, Invoice, InvoiceSequence } from '../../database/models';
+import { Client, Product, Order, OrderItem, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
 import { CreateOrderDto } from './order.dto';
 import { PdfService } from '../../admin/invoice/pdf.service';
 
@@ -106,6 +106,14 @@ export class OrderService {
         total_amount: totalAmount
       }, { transaction: t });
 
+      await OrderActivityLog.create({
+        order_id: order.id,
+        action_type: 'created',
+        actor: 'Customer',
+        to_status: 'pending',
+        description: 'Order submitted by customer'
+      }, { transaction: t });
+
       // 5. Create the Order Items
       for (const itemData of orderItemsData) {
         await OrderItem.create({
@@ -158,7 +166,7 @@ export class OrderService {
 
       // 7. Non-blocking PDF generation
       try {
-        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData);
+        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData, order);
         invoice.pdf_url = pdfUrl;
         invoice.pdf_generated_at = new Date();
         await invoice.save();

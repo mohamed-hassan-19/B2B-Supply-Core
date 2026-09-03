@@ -27,15 +27,21 @@ export class ClientRegisterDto {
   @IsString()
   password!: string;
 
-  @ApiProperty({ example: 'CR123456', required: false })
-  @IsOptional()
+  @ApiProperty({ example: 'CR123456', required: true })
   @IsString()
-  commercial_registration?: string;
+  commercial_registration!: string;
 
-  @ApiProperty({ example: 'TAX987654', required: false })
-  @IsOptional()
+  @ApiProperty({ example: 'TAX987654', required: true })
   @IsString()
-  tax_registration?: string;
+  tax_registration!: string;
+
+  @ApiProperty({ example: 'John Doe', required: true })
+  @IsString()
+  contact_name!: string;
+
+  @ApiProperty({ example: '+1234567890', required: true })
+  @IsString()
+  contact_phone!: string;
 }
 
 @ApiTags('Client Auth')

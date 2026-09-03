@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Controller, Query, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { InvoiceService } from './invoice.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -15,8 +15,24 @@ export class InvoiceController {
   @Get()
   @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all invoices' })
-  findAll() {
-    return this.invoiceService.findAll();
+  findAll(
+    @Query('start_date') start_date?: string,
+    @Query('end_date') end_date?: string,
+    @Query('client_id') client_id?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('export') exp?: string
+  ) {
+    return this.invoiceService.findAll({ 
+      start_date, 
+      end_date, 
+      client_id: client_id ? parseInt(client_id, 10) : undefined, 
+      status, 
+      page: page ? parseInt(page, 10) : undefined, 
+      limit: limit ? parseInt(limit, 10) : undefined,
+      export: exp
+    });
   }
 
   @Get(':id')

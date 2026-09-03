@@ -7,23 +7,29 @@ import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 export class StorefrontController {
   constructor(private readonly storefrontService: StorefrontService) {}
 
+  @Get('categories')
+  @ApiOperation({ summary: 'List all product categories' })
+  getCategories() {
+    return this.storefrontService.getCategories();
+  }
+
   @Get()
   @ApiOperation({ summary: 'List all active products in the catalog' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
-  @ApiQuery({ name: 'category', required: false, type: String })
+  @ApiQuery({ name: 'category_id', required: false, type: Number })
   findAll(
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20',
     @Query('search') search?: string,
-    @Query('category') category?: string,
+    @Query('category_id') categoryId?: string,
   ) {
     return this.storefrontService.findAll(
       parseInt(page, 10),
       parseInt(limit, 10),
       search,
-      category,
+      categoryId ? parseInt(categoryId, 10) : undefined,
     );
   }
 

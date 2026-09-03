@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Post, Body, UseGuards, Query } from '@nestjs/common';
 import { QuoteService } from './quote.service';
 import { CreateQuoteDto } from './quote.dto';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -16,8 +16,25 @@ export class QuoteController {
   @Get()
   @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'List all quotes' })
-  findAll() {
-    return this.quoteService.findAll();
+  findAll(
+    @Query('start_date') start_date?: string,
+    @Query('end_date') end_date?: string,
+    @Query('client_id') client_id?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('export') exp?: string,
+    @Query('quote_type') quote_type?: string
+  ) {
+    return this.quoteService.findAll({ 
+      start_date, 
+      end_date, 
+      client_id: client_id ? parseInt(client_id, 10) : undefined, 
+      page: page ? parseInt(page, 10) : undefined, 
+      limit: limit ? parseInt(limit, 10) : undefined,
+      export: exp,
+      
+    });
   }
 
   @Post()

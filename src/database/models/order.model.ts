@@ -6,6 +6,8 @@ export class Order extends Model {
   declare status: 'pending' | 'approved' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   declare payment_method: 'COD' | 'Credit';
   declare total_amount: number;
+  declare discount_amount: number;
+  declare discount_percentage?: number;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -19,6 +21,8 @@ export const initOrder = (sequelize: any) => {
       status: { type: DataTypes.ENUM('pending', 'approved', 'processing', 'shipped', 'delivered', 'cancelled'), defaultValue: 'pending' },
       payment_method: { type: DataTypes.ENUM('COD', 'Credit'), allowNull: false },
       total_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0.00 },
+      discount_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0.00 },
+      discount_percentage: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
     },
     { sequelize, modelName: 'Order' }
   );

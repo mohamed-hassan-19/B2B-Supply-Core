@@ -12,6 +12,7 @@ export class Client extends Model {
   declare status: 'pending' | 'approved' | 'rejected';
   declare credit_limit?: number;
   declare credit_terms?: number;
+  declare is_priority: boolean;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -31,6 +32,7 @@ export const initClient = (sequelize: any) => {
       status: { type: DataTypes.ENUM('pending', 'approved', 'rejected'), defaultValue: 'pending' },
       credit_limit: { type: DataTypes.DECIMAL(10, 2) },
       credit_terms: { type: DataTypes.INTEGER },
+      is_priority: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     { sequelize, modelName: 'Client' }
   );

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Quote, QuoteItem, Order, OrderItem, Product, Client, Invoice, InvoiceSequence } from '../../database/models';
+import { Quote, QuoteItem, Order, OrderItem, Product, Client, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
 import { Op } from 'sequelize';
 import { PdfService } from '../../admin/invoice/pdf.service';
 
@@ -23,7 +23,6 @@ export class QuoteService {
       // 1. Fetch Quote & Client
       const quote = await Quote.findOne({
         where: { id: quoteId, client_id: clientId },
-        include: [{ model: QuoteItem }],
         transaction: t,
         lock: t.LOCK.UPDATE
       });
@@ -43,22 +42,48 @@ export class QuoteService {
         throw new ForbiddenException('Client is not approved to place orders');
       }
 
-      // 2. Process Items and Calculate Total
+      // 2. Fetch Existing Order (if revision)
+      let existingOrder: any = null;
+      const oldOrderItemsMap = new Map<number, number>();
+      
+      if (quote.related_order_id) {
+        existingOrder = await Order.findByPk(quote.related_order_id, { transaction: t, lock: t.LOCK.UPDATE });
+        if (!existingOrder || (existingOrder.status !== 'pending' && existingOrder.status !== 'approved')) {
+          throw new BadRequestException('Cannot revise order - not found or invalid status');
+        }
+        const oldItems = await OrderItem.findAll({ where: { order_id: existingOrder.id }, transaction: t });
+        for (const oi of oldItems) {
+          if (oi.product_id) oldOrderItemsMap.set(oi.product_id, oi.quantity);
+        }
+      }
+
+      // 3. Process Items and Calculate Total
       let totalAmount = 0;
       const orderItemsData: any[] = [];
       const quoteItems = await QuoteItem.findAll({ where: { quote_id: quote.id }, transaction: t });
 
-      const productIds = quoteItems.map(qi => qi.product_id).filter(id => id !== null) as number[];
-      productIds.sort((a, b) => a - b);
+      const productIds = new Set<number>();
+      quoteItems.forEach(qi => { if (qi.product_id) productIds.add(qi.product_id); });
+      for (const pid of oldOrderItemsMap.keys()) {
+        productIds.add(pid);
+      }
+      const pidArr = Array.from(productIds).sort((a, b) => a - b);
 
       const products = await Product.findAll({
-        where: { id: productIds },
+        where: { id: pidArr },
         transaction: t,
         lock: t.LOCK.UPDATE
       });
       const productMap = new Map<number, Product>();
       products.forEach(p => productMap.set(p.id, p));
 
+      // Restore old stock in memory first
+      for (const [pid, oldQty] of oldOrderItemsMap.entries()) {
+        const p = productMap.get(pid);
+        if (p) p.stock_level += oldQty;
+      }
+
+      // Process new requirements
       for (const qi of quoteItems) {
         if (!qi.product_id) continue;
         const product = productMap.get(qi.product_id);
@@ -66,7 +91,7 @@ export class QuoteService {
           throw new BadRequestException(`Product for Quote Item is unavailable`);
         }
         if (product.stock_level < qi.requested_quantity) {
-          throw new BadRequestException(`Insufficient stock for quoted product`);
+          throw new BadRequestException(`Insufficient stock for product: ${product.name}`);
         }
 
         const price = qi.quoted_price ?? product.price;
@@ -80,103 +105,169 @@ export class QuoteService {
         });
 
         product.stock_level -= qi.requested_quantity;
-        await product.save({ transaction: t });
       }
 
-      // 3. Credit Check if Credit
+      // Save stock levels
+      for (const p of products) {
+        await p.save({ transaction: t });
+      }
+
+      // Apply existing order discount if applicable
+      let discountAmount = 0;
+      if (existingOrder && existingOrder.discount_percentage) {
+        discountAmount = Math.round((totalAmount * existingOrder.discount_percentage / 100) * 100) / 100;
+      }
+      const discountedTotal = totalAmount - discountAmount;
+
+      // 4. Credit Check if Credit
       if (paymentMethod === 'Credit') {
-        if (!client.credit_limit || client.credit_limit <= 0) {
-          throw new BadRequestException('Client has no credit limit.');
+        let shouldCheckCredit = true;
+        if (existingOrder && discountedTotal <= Number(existingOrder.total_amount)) {
+          shouldCheckCredit = false;
         }
 
-        const unpaidInvoices = await Invoice.findAll({
-          where: { payment_status: { [Op.ne]: 'paid' } },
-          include: [{ model: Order, where: { client_id: client.id }, attributes: [] }],
+        if (shouldCheckCredit) {
+          if (!client.credit_limit || client.credit_limit <= 0) {
+            throw new BadRequestException('Client has no credit limit.');
+          }
+
+          const unpaidInvoices = await Invoice.findAll({
+            where: { payment_status: { [Op.ne]: 'paid' } },
+            include: [{ model: Order, where: { client_id: client.id }, attributes: [] }],
+            transaction: t
+          });
+          
+          let unpaidInvoiceTotal = 0;
+          for (const inv of unpaidInvoices) {
+            if (existingOrder && inv.order_id === existingOrder.id) continue; // Exclude the invoice we're replacing
+            unpaidInvoiceTotal += Number(inv.grand_total || inv.amount);
+          }
+
+          const totalExposure = unpaidInvoiceTotal + discountedTotal;
+          if (totalExposure > client.credit_limit) {
+            throw new BadRequestException(`Credit limit exceeded by quote acceptance. Total exposure would be EGP ${totalExposure}`);
+          }
+        }
+      }
+
+      let order, invoice;
+
+      if (existingOrder) {
+        // 5a. Modify existing order
+        order = existingOrder;
+        order.total_amount = discountedTotal;
+        order.discount_amount = discountAmount;
+        order.payment_method = paymentMethod;
+        await order.save({ transaction: t });
+
+        await OrderItem.destroy({ where: { order_id: order.id }, transaction: t });
+        for (const itemData of orderItemsData) {
+          await OrderItem.create({
+            order_id: order.id,
+            ...itemData
+          }, { transaction: t });
+        }
+
+        invoice = await Invoice.findOne({ where: { order_id: order.id }, transaction: t, lock: t.LOCK.UPDATE });
+        if (invoice) {
+          const taxRate = 0.14;
+          const subtotal = discountedTotal;
+          const taxAmount = subtotal * taxRate;
+          const grandTotal = subtotal + taxAmount;
+
+          invoice.amount = grandTotal;
+          invoice.subtotal = subtotal;
+          invoice.tax_amount = taxAmount;
+          invoice.grand_total = grandTotal;
+          invoice.payment_method = paymentMethod;
+          // updatedAt will automatically be bumped
+          await invoice.save({ transaction: t });
+        }
+      } else {
+        // 5b. Create new order
+        order = await Order.create({
+          client_id: client.id,
+          status: 'pending',
+          payment_method: paymentMethod,
+          total_amount: totalAmount
+        }, { transaction: t });
+
+        for (const itemData of orderItemsData) {
+          await OrderItem.create({
+            order_id: order.id,
+            ...itemData
+          }, { transaction: t });
+        }
+
+        const currentYear = new Date().getFullYear();
+        await InvoiceSequence.findOrCreate({
+          where: { year: currentYear },
+          defaults: { last_value: 0 },
           transaction: t
         });
-        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || inv.amount), 0);
+        const sequence = await InvoiceSequence.findOne({
+          where: { year: currentYear },
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        });
+        
+        const nextVal = sequence!.last_value + 1;
+        sequence!.last_value = nextVal;
+        await sequence!.save({ transaction: t });
 
-        const totalExposure = unpaidInvoiceTotal + totalAmount;
-        if (totalExposure > client.credit_limit) {
-          throw new BadRequestException(`Credit limit exceeded by quote acceptance. Total exposure would be £${totalExposure}`);
-        }
-      }
+        const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
+        const taxRate = 0.14;
+        const subtotal = totalAmount;
+        const taxAmount = subtotal * taxRate;
+        const grandTotal = subtotal + taxAmount;
 
-      // 4. Create Order
-      const order = await Order.create({
-        client_id: client.id,
-        status: 'pending',
-        payment_method: paymentMethod,
-        total_amount: totalAmount
-      }, { transaction: t });
-
-      for (const itemData of orderItemsData) {
-        await OrderItem.create({
+        invoice = await Invoice.create({
+          invoice_number: invoiceNumber,
           order_id: order.id,
-          ...itemData
+          amount: grandTotal,
+          subtotal: subtotal,
+          tax_rate: taxRate,
+          tax_amount: taxAmount,
+          grand_total: grandTotal,
+          currency: 'EGP',
+          payment_method: paymentMethod,
+          sales_order_reference: `SO-${order.id}`,
+          customer_tax_id: client.tax_registration || null,
+          payment_status: 'pending'
         }, { transaction: t });
       }
 
-      // 5. Update Quote
+      // 6. Update Quote
       await quote.update({ status: 'accepted', order_id: order.id }, { transaction: t });
 
-      // 6. Create the Invoice automatically
-      const currentYear = new Date().getFullYear();
-      await InvoiceSequence.findOrCreate({
-        where: { year: currentYear },
-        defaults: { last_value: 0 },
-        transaction: t
-      });
-      const sequence = await InvoiceSequence.findOne({
-        where: { year: currentYear },
-        lock: t.LOCK.UPDATE,
-        transaction: t
-      });
-      
-      const nextVal = sequence!.last_value + 1;
-      sequence!.last_value = nextVal;
-      await sequence!.save({ transaction: t });
-
-      const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
-      const taxRate = 0.14;
-      const subtotal = totalAmount;
-      const taxAmount = subtotal * taxRate;
-      const grandTotal = subtotal + taxAmount;
-
-      const invoice = await Invoice.create({
-        invoice_number: invoiceNumber,
-        order_id: order.id,
-        amount: grandTotal,
-        subtotal: subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        grand_total: grandTotal,
-        currency: 'EGP',
-        payment_method: paymentMethod,
-        sales_order_reference: `SO-${order.id}`,
-        customer_tax_id: client.tax_registration || null,
-        payment_status: 'pending'
-      }, { transaction: t });
+      if (quote.related_order_id) {
+        await OrderActivityLog.create({
+          order_id: quote.related_order_id,
+          action_type: 'revision_accepted',
+          actor: 'Customer',
+          description: `Revision RFQ-${quote.id} accepted by customer`
+        }, { transaction: t });
+      }
 
       await t.commit();
 
-      // 7. Non-blocking PDF generation
+      // 7. Non-blocking PDF generation (or regen)
       try {
-        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData);
-        invoice.pdf_url = pdfUrl;
-        invoice.pdf_generated_at = new Date();
-        await invoice.save();
+        if (invoice) {
+          const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData, order);
+          invoice.pdf_url = pdfUrl;
+          invoice.pdf_generated_at = new Date();
+          await invoice.save();
+        }
       } catch (err) {
-        console.error('Failed to generate PDF for accepted quote order', order.id, err);
+        console.error('Failed to generate PDF for quote acceptance', err);
       }
 
       return order;
     } catch (error) {
       try {
         await t.rollback();
-      } catch (rollbackError) {
-        // Ignore rollback error if already committed/rolled back
-      }
+      } catch (rollbackError) {}
       throw error;
     }
   }
@@ -190,6 +281,15 @@ export class QuoteService {
       return quote.update({ status: 'expired' });
     }
 
-    return quote.update({ status: 'rejected' });
+    await quote.update({ status: 'rejected' });
+    if (quote.related_order_id) {
+      await OrderActivityLog.create({
+        order_id: quote.related_order_id,
+        action_type: 'revision_rejected',
+        actor: 'Customer',
+        description: `Revision RFQ-${quote.id} rejected by customer`
+      });
+    }
+    return quote;
   }
 }

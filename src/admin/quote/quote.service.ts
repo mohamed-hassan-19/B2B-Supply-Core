@@ -1,13 +1,55 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Quote, QuoteItem, Client, Product } from '../../database/models';
+import { Op } from 'sequelize';
 
 @Injectable()
 export class QuoteService {
-  async findAll() {
-    return Quote.findAll({ 
-      include: [{ model: Client, attributes: ['company_name'] }],
-      order: [['id', 'DESC']] 
-    });
+  async findAll(options: { start_date?: string, end_date?: string, client_id?: number,  quote_type?: string,page?: number, limit?: number, export?: string | boolean } = {}) {
+    const where: any = {};
+    if (options.start_date && options.end_date) {
+      where.createdAt = {
+        [Op.gte]: new Date(options.start_date),
+        [Op.lte]: new Date(options.end_date)
+      };
+    } else if (options.start_date) {
+      where.createdAt = { [Op.gte]: new Date(options.start_date) };
+    } else if (options.end_date) {
+      where.createdAt = { [Op.lte]: new Date(options.end_date) };
+    }
+
+    if (options.client_id) where.client_id = options.client_id;
+    
+    if (options.quote_type) where.quote_type = options.quote_type;
+
+    const queryOptions: any = { where, order: [['createdAt', 'DESC']] };
+    
+    // Add specific includes if needed based on entity
+    
+    queryOptions.include = [{ model: require('../../database/models').Client, attributes: ['company_name', 'is_priority'] }];
+    
+    
+    
+
+    if (options.export && (options.export === 'true' || options.export === true)) {
+      const items = await Quote.findAll(queryOptions);
+      return { items, total: items.length, page: 1, limit: items.length };
+    }
+
+    const page = Number(options.page) || 1;
+    const limit = Number(options.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    queryOptions.limit = limit;
+    queryOptions.offset = offset;
+
+    const { count, rows } = await Quote.findAndCountAll(queryOptions);
+
+    return {
+      items: rows,
+      total: count,
+      page,
+      limit
+    };
   }
 
   async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number }[], validUntil?: string) {

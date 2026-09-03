@@ -61,7 +61,7 @@ export class StorefrontInvoiceService {
     }));
 
     try {
-      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData);
+      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
       await invoice.update({ pdf_url: pdfUrl, pdf_generated_at: new Date() });
       return { success: true, pdfUrl, generated: true };
     } catch (err) {

@@ -1,15 +1,70 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { Invoice, Order, Client, OrderItem } from '../../database/models';
+import { Op } from 'sequelize';
 import { PdfService } from './pdf.service';
 
 @Injectable()
 export class InvoiceService {
   constructor(private readonly pdfService: PdfService) {}
 
-  async findAll() {
-    return Invoice.findAll({
-      order: [['id', 'DESC']]
-    });
+  async findAll(options: { start_date?: string, end_date?: string, client_id?: number, status?: string, page?: number, limit?: number, export?: string | boolean } = {}) {
+    const where: any = {};
+    if (options.start_date && options.end_date) {
+      where.createdAt = {
+        [Op.gte]: new Date(options.start_date),
+        [Op.lte]: new Date(options.end_date)
+      };
+    } else if (options.start_date) {
+      where.createdAt = { [Op.gte]: new Date(options.start_date) };
+    } else if (options.end_date) {
+      where.createdAt = { [Op.lte]: new Date(options.end_date) };
+    }
+
+    
+    // Invoice has order_id which links to client_id
+    
+    if (options.status) where.payment_status = options.status;
+    
+
+    const queryOptions: any = { where, order: [['createdAt', 'DESC']] };
+    
+    // Add specific includes if needed based on entity
+    
+    
+    
+    
+    if (options.client_id) {
+      queryOptions.include = [
+        { model: require('../../database/models').Order, where: { client_id: options.client_id }, include: [require('../../database/models').Client] }
+      ];
+    } else {
+      queryOptions.include = [
+        { model: require('../../database/models').Order, include: [require('../../database/models').Client] }
+      ];
+    }
+    
+    
+
+    if (options.export && (options.export === 'true' || options.export === true)) {
+      const items = await Invoice.findAll(queryOptions);
+      return { items, total: items.length, page: 1, limit: items.length };
+    }
+
+    const page = Number(options.page) || 1;
+    const limit = Number(options.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    queryOptions.limit = limit;
+    queryOptions.offset = offset;
+
+    const { count, rows } = await Invoice.findAndCountAll(queryOptions);
+
+    return {
+      items: rows,
+      total: count,
+      page,
+      limit
+    };
   }
 
   async findOne(id: number) {
@@ -60,19 +115,20 @@ export class InvoiceService {
     const items = await OrderItem.findAll({ where: { order_id: order.id } });
 
     // Build plain objects for pdf generation matching what it expects
-    const itemsData = items.map(item => ({
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit_price: item.unit_price
+    const itemsData = items.map(i => ({
+      product_id: i.product_id,
+      product_name: i.product_name,
+      quantity: i.quantity,
+      unit_price: i.unit_price
     }));
 
     try {
-      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData);
+      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
       await invoice.update({ pdf_url: pdfUrl, pdf_generated_at: new Date() });
       return { success: true, pdfUrl, generated: true };
     } catch (err) {
-      console.error('Failed to regenerate PDF', err);
-      throw new BadRequestException('Failed to generate PDF document');
+      console.error('PDF generation error:', err);
+      throw new InternalServerErrorException('Failed to generate PDF');
     }
   }
 
