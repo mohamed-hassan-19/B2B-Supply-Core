@@ -11,6 +11,12 @@ const sequelize = new Sequelize({
   password: process.env.DB_PASSWORD || 'postgres',
   database: process.env.DB_NAME || 'procurement_db',
   logging: false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false, // ← required for Supabase
+    },
+  },
 });
 
 const AdminUser = sequelize.define('AdminUser', {

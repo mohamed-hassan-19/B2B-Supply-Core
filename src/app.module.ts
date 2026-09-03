@@ -29,6 +29,12 @@ const databaseProvider = {
       password: process.env.DB_PASSWORD || 'postgres',
       database: process.env.DB_NAME || 'procurement_db',
       logging: false,
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false, // ← required for Supabase
+        },
+      },
     });
     
     setupModels(sequelize);
