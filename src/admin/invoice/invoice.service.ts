@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
-import { Invoice, Order, Client, OrderItem } from '../../database/models';
+import { Invoice, Order, Client, OrderItem, Product } from '../../database/models';
 import { Op } from 'sequelize';
 import { PdfService } from './pdf.service';
 
@@ -82,28 +82,10 @@ export class InvoiceService {
     throw new BadRequestException('Manual invoice generation is deprecated. Invoices are now created automatically at checkout.');
   }
 
-  async getPdf(id: number) {
+  async getPdf(id: number): Promise<Buffer> {
     const invoice = await Invoice.findByPk(id);
     if (!invoice) {
       throw new NotFoundException(`Invoice with ID ${id} not found`);
-    }
-
-    // Determine if regeneration is needed
-    // Regenerate if pdf_url is null, or if pdf_generated_at is null, or if the invoice was updated after the PDF was generated.
-    // We add a small buffer (e.g. 1 second) in case they were updated in the same transaction but slightly apart in timestamp.
-    let needsRegeneration = false;
-    if (!invoice.pdf_url || !invoice.pdf_generated_at) {
-      needsRegeneration = true;
-    } else {
-      const generatedAt = new Date(invoice.pdf_generated_at).getTime();
-      const updatedAt = new Date(invoice.updatedAt).getTime();
-      if (updatedAt > generatedAt + 1000) {
-        needsRegeneration = true;
-      }
-    }
-
-    if (!needsRegeneration) {
-      return { success: true, pdfUrl: invoice.pdf_url, generated: false };
     }
 
     const order = await Order.findByPk(invoice.order_id);
@@ -113,19 +95,19 @@ export class InvoiceService {
     if (!client) throw new NotFoundException('Client not found');
 
     const items = await OrderItem.findAll({ where: { order_id: order.id } });
-
-    // Build plain objects for pdf generation matching what it expects
-    const itemsData = items.map(i => ({
-      product_id: i.product_id,
-      product_name: i.product_name,
-      quantity: i.quantity,
-      unit_price: i.unit_price
+    
+    // Fetch product names for the items
+    const itemsData = await Promise.all(items.map(async (item: any) => {
+      const product = await Product.findByPk(item.product_id);
+      return {
+        ...item.toJSON(),
+        product_name: product ? product.name : `Product #${item.product_id}`
+      };
     }));
 
     try {
-      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
-      await invoice.update({ pdf_url: pdfUrl, pdf_generated_at: new Date() });
-      return { success: true, pdfUrl, generated: true };
+      const pdfBuffer = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
+      return pdfBuffer;
     } catch (err) {
       console.error('PDF generation error:', err);
       throw new InternalServerErrorException('Failed to generate PDF');

@@ -1,4 +1,5 @@
-import { Controller, Query, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Controller, Query, Get, Param, Patch, Post, UseGuards, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { InvoiceService } from './invoice.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -52,8 +53,14 @@ export class InvoiceController {
   @Get(':id/pdf')
   @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
   @ApiOperation({ summary: 'Get or generate the PDF for an invoice' })
-  getPdf(@Param('id') id: string) {
-    return this.invoiceService.getPdf(+id);
+  async getPdf(@Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.invoiceService.getPdf(+id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename=invoice-${id}.pdf`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Patch(':id/pay')

@@ -6,20 +6,15 @@ import PDFDocument from 'pdfkit-table';
 
 @Injectable()
 export class PdfService {
-  async generateInvoicePdf(invoice: any, client: any, items: any[], order?: any): Promise<string> {
+  async generateInvoicePdf(invoice: any, client: any, items: any[], order?: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ margin: 50, size: 'A4' });
-
-        const fileName = `INV-${invoice.id}-${Date.now()}.pdf`;
-        const uploadsDir = path.join(__dirname, '../../..', 'uploads', 'invoices');
-        if (!fs.existsSync(uploadsDir)) {
-          fs.mkdirSync(uploadsDir, { recursive: true });
-        }
         
-        const filePath = path.join(uploadsDir, fileName);
-        const writeStream = fs.createWriteStream(filePath);
-        doc.pipe(writeStream);
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', (err) => reject(err));
 
         // Load Arabic fonts
         const fontRegular = path.join(__dirname, '../../../assets/fonts/Amiri-Regular.ttf');
@@ -129,14 +124,6 @@ export class PdfService {
         doc.text('For inquiries, please contact support@listosupply.com.', 50, yPosition + 75, { align: 'center', width: 500 });
 
         doc.end();
-
-        writeStream.on('finish', () => {
-          resolve(`/uploads/invoices/${fileName}`);
-        });
-
-        writeStream.on('error', (err) => {
-          reject(err);
-        });
 
       } catch (error) {
         reject(error);

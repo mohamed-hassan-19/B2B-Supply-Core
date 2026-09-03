@@ -251,17 +251,7 @@ export class QuoteService {
 
       await t.commit();
 
-      // 7. Non-blocking PDF generation (or regen)
-      try {
-        if (invoice) {
-          const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData, order);
-          invoice.pdf_url = pdfUrl;
-          invoice.pdf_generated_at = new Date();
-          await invoice.save();
-        }
-      } catch (err) {
-        console.error('Failed to generate PDF for quote acceptance', err);
-      }
+      // Removed automatic PDF generation to save server space
 
       return order;
     } catch (error) {

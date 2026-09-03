@@ -163,17 +163,9 @@ export class OrderService {
       }, { transaction: t });
 
       await t.commit();
-
-      // 7. Non-blocking PDF generation
-      try {
-        const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, orderItemsData, order);
-        invoice.pdf_url = pdfUrl;
-        invoice.pdf_generated_at = new Date();
-        await invoice.save();
-      } catch (err) {
-        console.error('Failed to generate PDF for order', order.id, err);
-      }
-
+      
+      // Removed automatic PDF generation to save server space
+      
       return order;
     } catch (error) {
       try {
