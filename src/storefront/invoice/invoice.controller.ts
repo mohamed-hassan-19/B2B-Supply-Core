@@ -1,4 +1,5 @@
-import { Controller, Get, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, Request, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { StorefrontInvoiceService } from './invoice.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -26,7 +27,13 @@ export class StorefrontInvoiceController {
 
   @Get(':id/pdf')
   @ApiOperation({ summary: 'Get or generate the PDF for an invoice' })
-  getPdf(@Param('id') id: string, @Request() req: any) {
-    return this.invoiceService.getPdfForClient(+id, req.user.id);
+  async getPdf(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    const buffer = await this.invoiceService.getPdfForClient(+id, req.user.id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename=invoice-${id}.pdf`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { Invoice, Order, Client, OrderItem } from '../../database/models';
 import { PdfService } from '../../admin/invoice/pdf.service';
 
@@ -35,24 +35,9 @@ export class StorefrontInvoiceService {
     return { invoice, order, client, items };
   }
 
-  async getPdfForClient(id: number, clientId: number) {
+  async getPdfForClient(id: number, clientId: number): Promise<Buffer> {
     const data = await this.findOneForClient(id, clientId);
     const { invoice, order, client, items } = data;
-
-    let needsRegeneration = false;
-    if (!invoice.pdf_url || !invoice.pdf_generated_at) {
-      needsRegeneration = true;
-    } else {
-      const generatedAt = new Date(invoice.pdf_generated_at).getTime();
-      const updatedAt = new Date(invoice.updatedAt).getTime();
-      if (updatedAt > generatedAt + 1000) {
-        needsRegeneration = true;
-      }
-    }
-
-    if (!needsRegeneration) {
-      return { success: true, pdfUrl: invoice.pdf_url, generated: false };
-    }
 
     const itemsData = items.map(item => ({
       product_name: item.product_name,
@@ -61,12 +46,11 @@ export class StorefrontInvoiceService {
     }));
 
     try {
-      const pdfUrl = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
-      await invoice.update({ pdf_url: pdfUrl, pdf_generated_at: new Date() });
-      return { success: true, pdfUrl, generated: true };
+      const pdfBuffer = await this.pdfService.generateInvoicePdf(invoice, client, itemsData, order);
+      return pdfBuffer;
     } catch (err) {
       console.error('Failed to regenerate PDF', err);
-      throw new BadRequestException('Failed to generate PDF document');
+      throw new InternalServerErrorException('Failed to generate PDF');
     }
   }
 }

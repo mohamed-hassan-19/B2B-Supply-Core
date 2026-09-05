@@ -21,6 +21,8 @@ dotenv.config();
 const databaseProvider = {
   provide: 'SEQUELIZE',
   useFactory: async () => {
+    const isLocalhost = !process.env.DB_HOST || process.env.DB_HOST === 'localhost' || process.env.DB_HOST === '127.0.0.1';
+
     const sequelize = new Sequelize({
       dialect: 'postgres',
       host: process.env.DB_HOST || 'localhost',
@@ -29,10 +31,10 @@ const databaseProvider = {
       password: process.env.DB_PASSWORD || 'postgres',
       database: process.env.DB_NAME || 'procurement_db',
       logging: false,
-      dialectOptions: {
+      dialectOptions: isLocalhost ? {} : {
         ssl: {
           require: true,
-          rejectUnauthorized: false, // ← required for Supabase
+          rejectUnauthorized: false, // required for Supabase
         },
       },
     });
@@ -47,7 +49,7 @@ const databaseProvider = {
     }
 
     try {
-      await sequelize.sync({ force: false });
+      await sequelize.sync({ alter: true });
       console.log('All tables synced successfully.');
     } catch (error) {
       console.error('Sync error:', error); 

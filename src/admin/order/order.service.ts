@@ -188,7 +188,9 @@ export class OrderService {
       const quote = await Quote.create({
         client_id: order.client_id,
         related_order_id: order.id,
-        status: 'pending' // draft
+        status: 'pending', // draft
+        discount_percentage: order.discount_percentage,
+        discount_amount: order.discount_amount
       }, { transaction: t });
 
       // Add all existing items to this quote
@@ -240,16 +242,15 @@ export class OrderService {
       const items = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
       const itemsSum = items.reduce((sum, item) => sum + (Number(item.unit_price) * item.quantity), 0);
 
-      // Compute discount_amount = round(items_sum * discount_percentage / 100, 2)
       const discount_amount = Math.round((itemsSum * discount_percentage / 100) * 100) / 100;
-
       const discountedTotal = itemsSum - discount_amount;
       const old_discount = order.discount_percentage || 0;
       
-      order.discount_percentage = discount_percentage;
-      order.discount_amount = discount_amount;
-      order.total_amount = discountedTotal;
-      await order.save({ transaction: t });
+      await order.update({ 
+        discount_amount, 
+        discount_percentage, 
+        total_amount: discountedTotal 
+      }, { transaction: t });
 
       if (actorUser && old_discount !== discount_percentage) {
         await OrderActivityLog.create({

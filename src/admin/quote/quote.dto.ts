@@ -34,3 +34,23 @@ export class CreateQuoteDto {
   @IsDateString()
   valid_until?: string;
 }
+
+export class UpdateQuoteDto {
+  @ApiProperty({ type: [CreateQuoteItemDto], required: false })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateQuoteItemDto)
+  items?: CreateQuoteItemDto[];
+
+  @ApiProperty({ example: 10.5, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount_percentage?: number;
+
+  @ApiProperty({ example: '2026-12-31T23:59:59Z', required: false })
+  @IsOptional()
+  @IsDateString()
+  valid_until?: string;
+}

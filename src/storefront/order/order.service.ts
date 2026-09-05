@@ -76,7 +76,7 @@ export class OrderService {
         }
 
         const unpaidInvoices = await Invoice.findAll({
-          where: { payment_status: { [Op.ne]: 'paid' } },
+          where: { payment_status: { [Op.in]: ['pending', 'overdue'] } },
           include: [{
             model: Order,
             where: { client_id: client.id },

@@ -7,6 +7,8 @@ export class Quote extends Model {
   declare related_order_id?: number | null;
   declare status: 'pending' | 'sent' | 'accepted' | 'rejected' | 'expired';
   declare valid_until?: Date | null;
+  declare discount_percentage?: number | null;
+  declare discount_amount?: number | null;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -21,6 +23,8 @@ export const initQuote = (sequelize: any) => {
       related_order_id: { type: DataTypes.INTEGER, allowNull: true },
       status: { type: DataTypes.ENUM('pending', 'sent', 'accepted', 'rejected', 'expired'), defaultValue: 'pending' },
       valid_until: { type: DataTypes.DATE, allowNull: true },
+      discount_percentage: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
+      discount_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     },
     { sequelize, modelName: 'Quote' }
   );

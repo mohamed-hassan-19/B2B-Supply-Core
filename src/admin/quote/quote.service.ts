@@ -93,6 +93,70 @@ export class QuoteService {
     }
   }
 
+  async updateQuote(id: number, updateQuoteDto: any) {
+    if (!Product.sequelize) throw new Error('Sequelize not found');
+    const t = await Product.sequelize.transaction();
+
+    try {
+      const quote = await Quote.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!quote) throw new NotFoundException(`Quote ${id} not found`);
+      if (quote.status !== 'pending' && quote.status !== 'sent') {
+        throw new BadRequestException(`Cannot update quote in '${quote.status}' status`);
+      }
+
+      if (updateQuoteDto.valid_until !== undefined) {
+        quote.valid_until = updateQuoteDto.valid_until ? new Date(updateQuoteDto.valid_until) : null;
+      }
+      
+      if (updateQuoteDto.discount_percentage !== undefined) {
+        quote.discount_percentage = updateQuoteDto.discount_percentage;
+      }
+
+      // If items are provided, replace existing items
+      if (updateQuoteDto.items) {
+        await QuoteItem.destroy({ where: { quote_id: id }, transaction: t });
+        
+        let itemsSum = 0;
+        for (const item of updateQuoteDto.items) {
+          const product = await Product.findByPk(item.productId, { transaction: t });
+          if (!product || !product.is_active) {
+            throw new BadRequestException(`Product ${item.productId} is unavailable`);
+          }
+          await QuoteItem.create({
+            quote_id: quote.id,
+            product_id: item.productId,
+            requested_quantity: item.quantity,
+            quoted_price: item.quotedPrice || product.price,
+          }, { transaction: t });
+          itemsSum += (Number(item.quotedPrice || product.price) * item.quantity);
+        }
+
+        // Recalculate discount_amount if discount_percentage exists
+        if (quote.discount_percentage !== null && quote.discount_percentage !== undefined) {
+          quote.discount_amount = Math.round((itemsSum * (quote.discount_percentage as number) / 100) * 100) / 100;
+        } else {
+          quote.discount_amount = 0;
+        }
+      } else {
+        // If items are not updated, but discount_percentage is, we need to recalculate discount_amount
+        if (updateQuoteDto.discount_percentage !== undefined) {
+          const items = await QuoteItem.findAll({ where: { quote_id: id }, transaction: t });
+          const itemsSum = items.reduce((sum, item) => sum + (Number(item.quoted_price) * item.requested_quantity), 0);
+          quote.discount_amount = (quote.discount_percentage !== null && quote.discount_percentage !== undefined)
+            ? Math.round((itemsSum * (quote.discount_percentage as number) / 100) * 100) / 100 
+            : 0;
+        }
+      }
+
+      await quote.save({ transaction: t });
+      await t.commit();
+      return quote;
+    } catch (error) {
+      await t.rollback();
+      throw error;
+    }
+  }
+
   async sendQuote(id: number) {
     const quote = await Quote.findByPk(id);
     if (!quote) throw new NotFoundException(`Quote ${id} not found`);

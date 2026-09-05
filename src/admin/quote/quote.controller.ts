@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Patch, Post, Body, UseGuards, Query } from '@nestjs/common';
 import { QuoteService } from './quote.service';
-import { CreateQuoteDto } from './quote.dto';
+import { CreateQuoteDto, UpdateQuoteDto } from './quote.dto';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -49,5 +49,12 @@ export class QuoteController {
   @ApiOperation({ summary: 'Send quote to client' })
   send(@Param('id') id: string) {
     return this.quoteService.sendQuote(+id);
+  }
+
+  @Patch(':id')
+  @Roles('super_admin', 'sales', 'operator')
+  @ApiOperation({ summary: 'Update a draft or sent quote' })
+  update(@Param('id') id: string, @Body() updateQuoteDto: UpdateQuoteDto) {
+    return this.quoteService.updateQuote(+id, updateQuoteDto);
   }
 }

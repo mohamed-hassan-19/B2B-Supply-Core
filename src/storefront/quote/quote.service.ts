@@ -94,29 +94,38 @@ export class QuoteService {
           throw new BadRequestException(`Insufficient stock for product: ${product.name}`);
         }
 
-        const price = qi.quoted_price ?? product.price;
-        totalAmount += Number(price) * qi.requested_quantity;
-
+        const itemTotal = Number(qi.quoted_price) * qi.requested_quantity;
+        totalAmount += itemTotal;
         orderItemsData.push({
           product_id: product.id,
           product_name: product.name,
           quantity: qi.requested_quantity,
-          unit_price: price
+          unit_price: qi.quoted_price,
+          total_price: itemTotal
         });
 
+        // Deduct new stock
         product.stock_level -= qi.requested_quantity;
       }
 
-      // Save stock levels
-      for (const p of products) {
+      // Save stock updates
+      for (const p of productMap.values()) {
         await p.save({ transaction: t });
       }
 
-      // Apply existing order discount if applicable
+      // Apply quote discount
       let discountAmount = 0;
-      if (existingOrder && existingOrder.discount_percentage) {
-        discountAmount = Math.round((totalAmount * existingOrder.discount_percentage / 100) * 100) / 100;
+      let discountPercentage = quote.discount_percentage;
+      
+      // Fallback to existing order discount only if quote has no discount specified
+      if (discountPercentage === undefined || discountPercentage === null) {
+        discountPercentage = existingOrder?.discount_percentage || null;
       }
+      
+      if (discountPercentage) {
+        discountAmount = Math.round((totalAmount * discountPercentage / 100) * 100) / 100;
+      }
+      
       const discountedTotal = totalAmount - discountAmount;
 
       // 4. Credit Check if Credit
@@ -132,7 +141,7 @@ export class QuoteService {
           }
 
           const unpaidInvoices = await Invoice.findAll({
-            where: { payment_status: { [Op.ne]: 'paid' } },
+            where: { payment_status: { [Op.in]: ['pending', 'overdue'] } },
             include: [{ model: Order, where: { client_id: client.id }, attributes: [] }],
             transaction: t
           });
@@ -157,6 +166,7 @@ export class QuoteService {
         order = existingOrder;
         order.total_amount = discountedTotal;
         order.discount_amount = discountAmount;
+        order.discount_percentage = discountPercentage;
         order.payment_method = paymentMethod;
         await order.save({ transaction: t });
 
@@ -189,7 +199,9 @@ export class QuoteService {
           client_id: client.id,
           status: 'pending',
           payment_method: paymentMethod,
-          total_amount: totalAmount
+          total_amount: discountedTotal,
+          discount_amount: discountAmount,
+          discount_percentage: discountPercentage
         }, { transaction: t });
 
         for (const itemData of orderItemsData) {
