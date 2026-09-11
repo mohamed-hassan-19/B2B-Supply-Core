@@ -1,9 +1,45 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Order, OrderItem, Product, Client, Invoice, Quote, QuoteItem, OrderActivityLog } from '../../database/models';
 import { Op } from 'sequelize';
+import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
 
 @Injectable()
 export class OrderService {
+  async recalculateOrder(order: any, items: any[], t: any) {
+    const { itemsSumAfterItemDiscounts, orderDiscountAmount, totalAmount, processedItems } = calculateDiscountTotals(order.discount_percentage, items);
+    
+    order.discount_amount = orderDiscountAmount;
+    order.total_amount = totalAmount;
+    await order.save({ transaction: t });
+
+    for (const pItem of processedItems) {
+      const dbItem = items.find(i => i.id === pItem.id);
+      if (dbItem) {
+        if (dbItem.discount_amount !== pItem.discount_amount) {
+          dbItem.discount_amount = pItem.discount_amount;
+        }
+        if (dbItem.changed()) {
+          await dbItem.save({ transaction: t });
+        }
+      }
+    }
+
+    const invoice = await Invoice.findOne({ where: { order_id: order.id }, transaction: t, lock: t.LOCK.UPDATE });
+    if (invoice) {
+      const taxRate = Number(invoice.tax_rate) || 0.14;
+      const newTaxAmount = totalAmount * taxRate;
+      const newGrandTotal = totalAmount + newTaxAmount;
+      
+      await invoice.update({
+        subtotal: itemsSumAfterItemDiscounts,
+        tax_amount: newTaxAmount,
+        grand_total: newGrandTotal,
+        amount: newGrandTotal
+      }, { transaction: t });
+    }
+    return { itemsSumAfterItemDiscounts, totalAmount };
+  }
+
   async findAll(options: { start_date?: string, end_date?: string, client_id?: number, status?: string, page?: number, limit?: number, export?: string | boolean } = {}) {
     const where: any = {};
     if (options.start_date && options.end_date) {
@@ -193,15 +229,19 @@ export class OrderService {
         discount_amount: order.discount_amount
       }, { transaction: t });
 
-      // Add all existing items to this quote
-      for (const item of items) {
-        await QuoteItem.create({
-          quote_id: quote.id,
-          product_id: item.product_id,
-          requested_quantity: item.quantity,
-          quoted_price: item.unit_price,
-        }, { transaction: t });
-      }
+        // Add all existing items to this quote
+        for (const item of items) {
+          await QuoteItem.create({
+            quote_id: quote.id,
+            product_id: item.product_id,
+            requested_quantity: item.quantity,
+            quoted_price: item.unit_price,
+            purchase_unit: item.purchase_unit,
+            dozen_size_at_purchase: item.dozen_size_at_purchase,
+            discount_percentage: item.discount_percentage,
+            discount_amount: item.discount_amount
+          }, { transaction: t });
+        }
 
       if (actorUser) {
         await OrderActivityLog.create({
@@ -239,39 +279,135 @@ export class OrderService {
         throw new BadRequestException('Invalid discount percentage. Must be between 0 and 100.');
       }
 
-      const items = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
-      const itemsSum = items.reduce((sum, item) => sum + (Number(item.unit_price) * item.quantity), 0);
-
-      const discount_amount = Math.round((itemsSum * discount_percentage / 100) * 100) / 100;
-      const discountedTotal = itemsSum - discount_amount;
       const old_discount = order.discount_percentage || 0;
+      order.discount_percentage = discount_percentage;
+
+      const items = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
       
-      await order.update({ 
-        discount_amount, 
-        discount_percentage, 
-        total_amount: discountedTotal 
-      }, { transaction: t });
+      await this.recalculateOrder(order, items, t);
 
       if (actorUser && old_discount !== discount_percentage) {
         await OrderActivityLog.create({
           order_id: order.id,
           action_type: 'discount_changed',
           actor: `Admin #${actorUser.id} (${actorUser.name || actorUser.email})`,
-          description: `Discount updated from ${old_discount}% to ${discount_percentage}%`
+          description: `Order discount updated from ${old_discount}% to ${discount_percentage}%`
         }, { transaction: t });
       }
 
-      const invoice = await Invoice.findOne({ where: { order_id: order.id }, transaction: t, lock: t.LOCK.UPDATE });
-      if (invoice) {
-        const taxRate = Number(invoice.tax_rate) || 0.14;
-        const newTaxAmount = discountedTotal * taxRate;
-        const newGrandTotal = discountedTotal + newTaxAmount;
-        
-        await invoice.update({
-          subtotal: itemsSum, // Subtotal stays raw sum, discount reduces taxable base
-          tax_amount: newTaxAmount,
-          grand_total: newGrandTotal,
-          amount: newGrandTotal
+      await t.commit();
+      return order;
+    } catch (e) {
+      await t.rollback();
+      throw e;
+    }
+  }
+
+  async applyItemDiscount(id: number, itemId: number, discount_percentage: number, actorUser?: any) {
+    if (!Product.sequelize) throw new Error('Sequelize instance not found');
+    const t = await Product.sequelize.transaction();
+    
+    try {
+      const order = await Order.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${id} not found`);
+      }
+
+      if (order.status !== 'pending' && order.status !== 'approved') {
+        throw new BadRequestException(`Cannot apply discount. Order status must be pending or approved.`);
+      }
+
+      if (discount_percentage < 0 || discount_percentage > 100) {
+        throw new BadRequestException('Invalid discount percentage. Must be between 0 and 100.');
+      }
+
+      const items = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
+      const targetItem = items.find(i => i.id === itemId);
+      
+      if (!targetItem) {
+        throw new NotFoundException(`Order item with ID ${itemId} not found`);
+      }
+
+      const old_discount = targetItem.discount_percentage || 0;
+      targetItem.discount_percentage = discount_percentage;
+
+      await this.recalculateOrder(order, items, t);
+
+      if (actorUser && old_discount !== discount_percentage) {
+        await OrderActivityLog.create({
+          order_id: order.id,
+          action_type: 'discount_changed',
+          actor: `Admin #${actorUser.id} (${actorUser.name || actorUser.email})`,
+          description: `Item '${targetItem.product_name}' discount updated from ${old_discount}% to ${discount_percentage}%`
+        }, { transaction: t });
+      }
+
+      await t.commit();
+      return order;
+    } catch (e) {
+      await t.rollback();
+      throw e;
+    }
+  }
+
+  async cancelItem(id: number, itemId: number, reason: string, actorUser?: any) {
+    if (!Product.sequelize) throw new Error('Sequelize instance not found');
+    const t = await Product.sequelize.transaction();
+    
+    try {
+      const order = await Order.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${id} not found`);
+      }
+
+      if (order.status !== 'pending' && order.status !== 'approved') {
+        throw new BadRequestException(`Cannot cancel item. Order status must be pending or approved.`);
+      }
+
+      const pendingRevision = await Quote.findOne({ 
+        where: { related_order_id: id, status: 'sent' }, 
+        transaction: t 
+      });
+      if (pendingRevision) {
+        throw new BadRequestException(`Cannot cancel item. Resolve the pending order revision before cancelling an item.`);
+      }
+
+      const items = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
+      const targetItem = items.find(i => i.id === itemId);
+      
+      if (!targetItem) {
+        throw new NotFoundException(`Order item with ID ${itemId} not found`);
+      }
+      if (targetItem.is_cancelled) {
+        throw new BadRequestException(`Item with ID ${itemId} is already cancelled`);
+      }
+
+      targetItem.is_cancelled = true;
+      await targetItem.save({ transaction: t });
+
+      if (targetItem.product_id) {
+        const product = await Product.findByPk(targetItem.product_id, { transaction: t, lock: t.LOCK.UPDATE });
+        if (product) {
+          product.stock_level += targetItem.quantity;
+          await product.save({ transaction: t });
+        }
+      }
+
+      const nonCancelledItems = items.filter(i => !i.is_cancelled);
+      
+      if (nonCancelledItems.length === 0) {
+        await t.rollback();
+        return this.cancelOrder(id, actorUser);
+      }
+
+      await this.recalculateOrder(order, nonCancelledItems, t);
+
+      if (actorUser) {
+        await OrderActivityLog.create({
+          order_id: order.id,
+          action_type: 'item_cancelled',
+          actor: `Admin #${actorUser.id} (${actorUser.name || actorUser.email})`,
+          description: `Item '${targetItem.product_name}' was cancelled. Reason: ${reason}`
         }, { transaction: t });
       }
 

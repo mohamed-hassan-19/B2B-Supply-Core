@@ -5,7 +5,10 @@ import { Op } from 'sequelize';
 @Injectable()
 export class StorefrontService {
   async getCategories() {
-    return Category.findAll({ order: [['name', 'ASC']] });
+    return Category.findAll({
+      where: { is_active: true },
+      order: [['name', 'ASC']]
+    });
   }
 
   async findAll(page: number, limit: number, search?: string, categoryId?: number) {

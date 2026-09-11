@@ -21,6 +21,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
     // This payload will be added to the Request object as `req.user`
-    return { id: payload.id, role: payload.role, status: payload.status, type: payload.type };
+    return { id: payload.id, role: payload.role, status: payload.status, type: payload.type, name: payload.name, email: payload.email };
   }
 }

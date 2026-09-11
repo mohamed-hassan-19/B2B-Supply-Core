@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Patch, Param, Query } from '@nestjs/common';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto } from './category.dto';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -15,8 +15,8 @@ export class CategoryController {
 
   @Get()
   @ApiOperation({ summary: 'List all categories' })
-  findAll() {
-    return this.categoryService.findAll();
+  findAll(@Query('include_inactive') include_inactive?: string) {
+    return this.categoryService.findAll(include_inactive === 'true');
   }
 
   @Post()
@@ -24,5 +24,19 @@ export class CategoryController {
   @ApiOperation({ summary: 'Create a new category' })
   create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.create(createCategoryDto);
+  }
+
+  @Patch(':id/activate')
+  @Roles('super_admin', 'content')
+  @ApiOperation({ summary: 'Activate category' })
+  activate(@Param('id') id: string) {
+    return this.categoryService.activate(+id);
+  }
+
+  @Patch(':id/deactivate')
+  @Roles('super_admin', 'content')
+  @ApiOperation({ summary: 'Deactivate category' })
+  deactivate(@Param('id') id: string) {
+    return this.categoryService.deactivate(+id);
   }
 }

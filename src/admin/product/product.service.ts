@@ -93,4 +93,9 @@ export class ProductService {
     const product = await this.findOne(id);
     return product.update({ is_active: false });
   }
+
+  async activate(id: number) {
+    const product = await this.findOne(id);
+    return product.update({ is_active: true });
+  }
 }

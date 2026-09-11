@@ -8,6 +8,28 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { BadRequestException } from '@nestjs/common';
+
+const multerImageOptions = {
+  storage: diskStorage({
+    destination: './uploads',
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const ext = extname(file.originalname);
+      cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+    }
+  }),
+  fileFilter: (req: any, file: any, cb: any) => {
+    if (file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('Only image files (jpg, jpeg, png, webp) are allowed!'), false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  }
+};
 
 @ApiTags('Admin Products')
 @ApiBearerAuth()
@@ -21,16 +43,7 @@ export class ProductController {
   @ApiOperation({ summary: 'Create a new product' })
   @ApiResponse({ status: 201, description: 'Product created.' })
   @ApiConsumes('multipart/form-data', 'application/json')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const ext = extname(file.originalname);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-      }
-    })
-  }))
+  @UseInterceptors(FileInterceptor('file', multerImageOptions))
   create(
     @Body() createProductDto: CreateProductDto,
     @UploadedFile() file?: Express.Multer.File
@@ -77,16 +90,7 @@ export class ProductController {
   @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Update product details (excluding stock)' })
   @ApiConsumes('multipart/form-data', 'application/json')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const ext = extname(file.originalname);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-      }
-    })
-  }))
+  @UseInterceptors(FileInterceptor('file', multerImageOptions))
   update(
     @Param('id') id: string, 
     @Body() updateProductDto: UpdateProductDto,
@@ -115,20 +119,18 @@ export class ProductController {
     return this.productService.remove(+id);
   }
 
+  @Patch(':id/activate')
+  @Roles('super_admin', 'content')
+  @ApiOperation({ summary: 'Reactivate a soft-deleted product' })
+  activate(@Param('id') id: string) {
+    return this.productService.activate(+id);
+  }
+
   @Post('upload-image')
   @Roles('super_admin', 'content')
   @ApiOperation({ summary: 'Upload a product image' })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const ext = extname(file.originalname);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-      }
-    })
-  }))
+  @UseInterceptors(FileInterceptor('file', multerImageOptions))
   uploadImage(
     @Body() body: ImageUploadDto,
     @UploadedFile() file: Express.Multer.File

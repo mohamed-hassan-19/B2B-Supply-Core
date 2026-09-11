@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Quote, QuoteItem, Client, Product } from '../../database/models';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Quote, QuoteItem, Product, Client, OrderActivityLog } from '../../database/models';
 import { Op } from 'sequelize';
+import { CreateQuoteDto, UpdateQuoteDto } from './quote.dto';
+import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
 
 @Injectable()
 export class QuoteService {
@@ -52,7 +54,7 @@ export class QuoteService {
     };
   }
 
-  async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number }[], validUntil?: string) {
+  async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number, purchase_unit?: 'single' | 'dozen', discount_percentage?: number }[], validUntil?: string, discount_percentage?: number) {
     const client = await Client.findByPk(clientId);
     if (!client) {
       throw new NotFoundException(`Client with ID ${clientId} not found`);
@@ -68,8 +70,11 @@ export class QuoteService {
       const quote = await Quote.create({
         client_id: client.id,
         status: 'pending', // pending = draft
-        valid_until: validUntil || null
+        valid_until: validUntil || null,
+        discount_percentage: discount_percentage || null
       }, { transaction: t });
+
+      const quoteItemsData: any[] = [];
 
       for (const item of items) {
         const product = await Product.findByPk(item.productId, { transaction: t });
@@ -77,12 +82,35 @@ export class QuoteService {
           throw new BadRequestException(`Active product with ID ${item.productId} not found`);
         }
 
-        await QuoteItem.create({
+        if (item.purchase_unit === 'dozen') {
+          if (!product.dozen_quantity) {
+            throw new BadRequestException(`Product ${product.name} does not have a dozen size configured`);
+          }
+          if (item.quantity % product.dozen_quantity !== 0) {
+            throw new BadRequestException(`Requested quantity ${item.quantity} for dozen purchase of ${product.name} is not an exact multiple of its dozen size (${product.dozen_quantity})`);
+          }
+        }
+
+        quoteItemsData.push({
           quote_id: quote.id,
           product_id: product.id,
           requested_quantity: item.quantity,
-          quoted_price: item.quotedPrice
-        }, { transaction: t });
+          quoted_price: item.quotedPrice,
+          purchase_unit: item.purchase_unit || 'single',
+          dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null,
+          discount_percentage: item.discount_percentage || null
+        });
+      }
+
+      const { orderDiscountAmount, processedItems } = calculateDiscountTotals(discount_percentage, quoteItemsData);
+
+      for (const itemData of processedItems) {
+        await QuoteItem.create(itemData, { transaction: t });
+      }
+
+      if (orderDiscountAmount) {
+        quote.discount_amount = orderDiscountAmount;
+        await quote.save({ transaction: t });
       }
 
       await t.commit();
@@ -113,40 +141,62 @@ export class QuoteService {
       }
 
       // If items are provided, replace existing items
+      let itemsForCalculation: any[] = [];
+
       if (updateQuoteDto.items) {
         await QuoteItem.destroy({ where: { quote_id: id }, transaction: t });
         
-        let itemsSum = 0;
         for (const item of updateQuoteDto.items) {
           const product = await Product.findByPk(item.productId, { transaction: t });
           if (!product || !product.is_active) {
             throw new BadRequestException(`Product ${item.productId} is unavailable`);
           }
-          await QuoteItem.create({
+
+          if (item.purchase_unit === 'dozen') {
+            if (!product.dozen_quantity) {
+              throw new BadRequestException(`Product ${product.name} does not have a dozen size configured`);
+            }
+            if (item.quantity % product.dozen_quantity !== 0) {
+              throw new BadRequestException(`Requested quantity ${item.quantity} for dozen purchase of ${product.name} is not an exact multiple of its dozen size (${product.dozen_quantity})`);
+            }
+          }
+
+          itemsForCalculation.push({
             quote_id: quote.id,
             product_id: item.productId,
             requested_quantity: item.quantity,
             quoted_price: item.quotedPrice || product.price,
-          }, { transaction: t });
-          itemsSum += (Number(item.quotedPrice || product.price) * item.quantity);
-        }
-
-        // Recalculate discount_amount if discount_percentage exists
-        if (quote.discount_percentage !== null && quote.discount_percentage !== undefined) {
-          quote.discount_amount = Math.round((itemsSum * (quote.discount_percentage as number) / 100) * 100) / 100;
-        } else {
-          quote.discount_amount = 0;
+            purchase_unit: item.purchase_unit || 'single',
+            dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null,
+            discount_percentage: item.discount_percentage || null
+          });
         }
       } else {
-        // If items are not updated, but discount_percentage is, we need to recalculate discount_amount
-        if (updateQuoteDto.discount_percentage !== undefined) {
-          const items = await QuoteItem.findAll({ where: { quote_id: id }, transaction: t });
-          const itemsSum = items.reduce((sum, item) => sum + (Number(item.quoted_price) * item.requested_quantity), 0);
-          quote.discount_amount = (quote.discount_percentage !== null && quote.discount_percentage !== undefined)
-            ? Math.round((itemsSum * (quote.discount_percentage as number) / 100) * 100) / 100 
-            : 0;
+        // Keep existing items if not provided
+        const existingItems = await QuoteItem.findAll({ where: { quote_id: id }, transaction: t });
+        itemsForCalculation = existingItems.map(ei => ei.get({ plain: true }));
+      }
+
+      const { orderDiscountAmount, processedItems } = calculateDiscountTotals(quote.discount_percentage, itemsForCalculation);
+
+      // Save items
+      if (updateQuoteDto.items) {
+        for (const itemData of processedItems) {
+          await QuoteItem.create(itemData, { transaction: t });
+        }
+      } else {
+        // If only discount changed, update existing items
+        const dbItems = await QuoteItem.findAll({ where: { quote_id: id }, transaction: t });
+        for (const pItem of processedItems) {
+          const dbItem = dbItems.find(i => i.id === pItem.id);
+          if (dbItem && dbItem.discount_amount !== pItem.discount_amount) {
+            dbItem.discount_amount = pItem.discount_amount;
+            await dbItem.save({ transaction: t });
+          }
         }
       }
+
+      quote.discount_amount = orderDiscountAmount || 0;
 
       await quote.save({ transaction: t });
       await t.commit();

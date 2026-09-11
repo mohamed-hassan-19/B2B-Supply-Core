@@ -15,6 +15,8 @@ import { CategoryModule } from './admin/category/category.module';
 import { ReportsModule } from './admin/reports/reports.module';
 import { IncidentModule } from './admin/incident/incident.module';
 import * as dotenv from 'dotenv';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 dotenv.config();
 
@@ -49,7 +51,7 @@ const databaseProvider = {
     }
 
     try {
-      await sequelize.sync({ alter: true });
+      await sequelize.sync({ force: false });
       console.log('All tables synced successfully.');
     } catch (error) {
       console.error('Sync error:', error); 
@@ -60,9 +62,27 @@ const databaseProvider = {
 };
 
 @Module({
-  imports: [AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule, CategoryModule, ReportsModule, IncidentModule],
+  imports: [
+    ThrottlerModule.forRoot([{
+      name: 'default',
+      ttl: 60000,
+      limit: 100,
+    }, {
+      name: 'auth',
+      ttl: 60000,
+      limit: 5,
+    }]),
+    AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule, CategoryModule, ReportsModule, IncidentModule
+  ],
   controllers: [AppController],
-  providers: [AppService, databaseProvider],
+  providers: [
+    AppService, 
+    databaseProvider,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard
+    }
+  ],
   exports: ['SEQUELIZE'],
 })
 export class AppModule {}

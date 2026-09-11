@@ -8,6 +8,28 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { BadRequestException } from '@nestjs/common';
+
+const multerDocOptions = {
+  storage: diskStorage({
+    destination: './uploads',
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const ext = extname(file.originalname);
+      cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+    }
+  }),
+  fileFilter: (req: any, file: any, cb: any) => {
+    if (file.mimetype.match(/\/(pdf|jpg|jpeg|png)$/)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('Only PDF, JPG, JPEG, and PNG files are allowed!'), false);
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  }
+};
 
 @ApiTags('Admin Clients')
 @ApiBearerAuth()
@@ -72,16 +94,7 @@ export class ClientController {
   @Roles('super_admin', 'sales')
   @ApiOperation({ summary: 'Upload a client document' })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const ext = extname(file.originalname);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-      }
-    })
-  }))
+  @UseInterceptors(FileInterceptor('file', multerDocOptions))
   uploadDocument(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File

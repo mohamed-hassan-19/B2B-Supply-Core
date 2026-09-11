@@ -27,7 +27,8 @@ export const initOrderActivityLog = (sequelize: any) => {
           'revision_accepted',
           'revision_rejected',
           'incident_raised',
-          'incident_resolved'
+          'incident_resolved',
+          'item_cancelled'
         ), 
         allowNull: false 
       },

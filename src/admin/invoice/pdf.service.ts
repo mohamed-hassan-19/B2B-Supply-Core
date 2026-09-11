@@ -85,11 +85,34 @@ export class PdfService {
 
         for (const item of items) {
           const itemTotal = Number(item.unit_price) * item.quantity;
-          doc.text(item.product_name || `Product #${item.product_id}`, 50, yPosition);
-          doc.text(item.quantity.toString(), 280, yPosition);
-          doc.text(`${invoice.currency} ${Number(item.unit_price).toFixed(2)}`, 350, yPosition);
-          doc.text(`${invoice.currency} ${itemTotal.toFixed(2)}`, 450, yPosition);
+          let displayName = item.product_name || `Product #${item.product_id}`;
+          let displayQty = item.quantity.toString();
+          let displayPrice = Number(item.unit_price).toFixed(2);
+          
+          if (item.purchase_unit === 'dozen' && item.dozen_size_at_purchase) {
+            const dozenCount = item.quantity / item.dozen_size_at_purchase;
+            displayQty = `${dozenCount} doz (${item.quantity})`;
+            displayPrice = (Number(item.unit_price) * item.dozen_size_at_purchase).toFixed(2);
+          }
+
+          if (item.discount_percentage && Number(item.discount_percentage) > 0) {
+            displayName = `${displayName} (${Number(item.discount_percentage)}% off)`;
+          }
+
+          if (item.is_cancelled) {
+            displayName = `${displayName} (Cancelled)`;
+            doc.fillColor('#9CA3AF');
+          }
+
+          const lineTotal = itemTotal - (Number(item.discount_amount) || 0);
+
+          doc.text(displayName, 50, yPosition);
+          doc.text(displayQty, 280, yPosition);
+          doc.text(`${invoice.currency} ${displayPrice}`, 350, yPosition);
+          doc.text(`${invoice.currency} ${lineTotal.toFixed(2)}`, 450, yPosition);
           yPosition += 20;
+          
+          doc.fillColor('black');
         }
 
         doc.moveTo(50, yPosition + 10).lineTo(550, yPosition + 10).stroke();

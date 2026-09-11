@@ -67,6 +67,19 @@ export class CreateProductDto {
   @Min(0)
   @Type(() => Number)
   low_stock_threshold?: number;
+  @ApiProperty({ example: 12, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  dozen_quantity?: number;
+
+  @ApiProperty({ example: 2500.00, required: false })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  dozen_price?: number;
 }
 
 export class UpdateProductDto {
@@ -120,6 +133,20 @@ export class UpdateProductDto {
   @Min(0)
   @Type(() => Number)
   stock_level?: number;
+
+  @ApiProperty({ example: 12, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  dozen_quantity?: number;
+
+  @ApiProperty({ example: 2500.00, required: false })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  dozen_price?: number;
 }
 
 export class UpdateStockDto {

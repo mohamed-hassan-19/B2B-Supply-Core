@@ -1,4 +1,4 @@
-import { IsEnum, IsArray, ValidateNested, IsNumber, Min } from 'class-validator';
+import { IsEnum, IsArray, ValidateNested, IsNumber, Min, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -11,6 +11,11 @@ export class OrderItemDto {
   @IsNumber()
   @Min(1)
   quantity!: number;
+
+  @ApiProperty({ example: 'single', enum: ['single', 'dozen'], required: false })
+  @IsOptional()
+  @IsEnum(['single', 'dozen'])
+  purchase_unit?: 'single' | 'dozen';
 }
 
 export class CreateOrderDto {

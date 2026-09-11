@@ -41,7 +41,7 @@ export class QuoteController {
   @Roles('super_admin', 'sales', 'operator')
   @ApiOperation({ summary: 'Draft a new quote' })
   create(@Body() createQuoteDto: CreateQuoteDto) {
-    return this.quoteService.createQuote(createQuoteDto.clientId, createQuoteDto.items, createQuoteDto.valid_until);
+    return this.quoteService.createQuote(createQuoteDto.clientId, createQuoteDto.items, createQuoteDto.valid_until, createQuoteDto.discount_percentage);
   }
 
   @Patch(':id/send')

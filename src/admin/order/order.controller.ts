@@ -86,6 +86,30 @@ export class OrderController {
     return this.orderService.applyDiscount(+id, discount_percentage, req.user);
   }
 
+  @Patch(':id/items/:itemId/discount')
+  @Roles('super_admin')
+  @ApiOperation({ summary: 'Apply a discount percentage to a specific order item' })
+  applyItemDiscount(
+    @Param('id') id: string, 
+    @Param('itemId') itemId: string,
+    @Body('discount_percentage') discount_percentage: number, 
+    @Request() req: any
+  ) {
+    return this.orderService.applyItemDiscount(+id, +itemId, discount_percentage, req.user);
+  }
+
+  @Patch(':id/items/:itemId/cancel')
+  @Roles('super_admin', 'sales')
+  @ApiOperation({ summary: 'Cancel a single item from an order' })
+  cancelItem(
+    @Param('id') id: string, 
+    @Param('itemId') itemId: string,
+    @Body('reason') reason: string,
+    @Request() req: any
+  ) {
+    return this.orderService.cancelItem(+id, +itemId, reason, req.user);
+  }
+
   @Post(':id/revise')
   @Roles('super_admin', 'sales', 'operator')
   @ApiOperation({ summary: 'Create a revision quote for an existing order' })

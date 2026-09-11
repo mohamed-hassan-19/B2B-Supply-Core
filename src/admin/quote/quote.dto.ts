@@ -1,4 +1,4 @@
-import { IsNumber, IsArray, ValidateNested, Min, IsOptional, IsDateString } from 'class-validator';
+import { IsNumber, IsArray, ValidateNested, Min, IsOptional, IsDateString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -16,6 +16,17 @@ export class CreateQuoteItemDto {
   @IsNumber()
   @Min(0)
   quotedPrice!: number;
+
+  @ApiProperty({ example: 'single', enum: ['single', 'dozen'], required: false })
+  @IsOptional()
+  @IsEnum(['single', 'dozen'])
+  purchase_unit?: 'single' | 'dozen';
+
+  @ApiProperty({ example: 10, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount_percentage?: number;
 }
 
 export class CreateQuoteDto {
@@ -33,6 +44,12 @@ export class CreateQuoteDto {
   @IsOptional()
   @IsDateString()
   valid_until?: string;
+
+  @ApiProperty({ example: 5, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount_percentage?: number;
 }
 
 export class UpdateQuoteDto {

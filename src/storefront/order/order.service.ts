@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Sequelize, Op } from 'sequelize';
 import { Client, Product, Order, OrderItem, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
+import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
 import { CreateOrderDto } from './order.dto';
 import { PdfService } from '../../admin/invoice/pdf.service';
 
@@ -52,22 +53,40 @@ export class OrderService {
           throw new BadRequestException(`Product ${product.name} is no longer active`);
         }
 
+        if (item.purchase_unit === 'dozen') {
+          if (!product.dozen_quantity || !product.dozen_price) {
+            throw new BadRequestException(`Product ${product.name} cannot be bought by the dozen`);
+          }
+          if (item.quantity % product.dozen_quantity !== 0) {
+            throw new BadRequestException(`Requested quantity ${item.quantity} for dozen purchase of ${product.name} is not an exact multiple of its dozen size (${product.dozen_quantity})`);
+          }
+        }
+
         if (product.stock_level < item.quantity) {
           throw new BadRequestException(`Insufficient stock for product ${product.name}. Requested: ${item.quantity}, Available: ${product.stock_level}`);
         }
 
-        totalAmount += Number(product.price) * item.quantity;
+        let effectiveUnitPrice = Number(product.price);
+        if (item.purchase_unit === 'dozen' && product.dozen_quantity && product.dozen_price) {
+          effectiveUnitPrice = Number(product.dozen_price) / product.dozen_quantity;
+        }
+
+        totalAmount += effectiveUnitPrice * item.quantity;
 
         orderItemsData.push({
           product_id: product.id,
           product_name: product.name,
           quantity: item.quantity,
-          unit_price: product.price,
+          unit_price: effectiveUnitPrice,
+          purchase_unit: item.purchase_unit || 'single',
+          dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null
         });
 
         product.stock_level -= item.quantity;
         await product.save({ transaction: t });
       }
+
+      const { itemsSumAfterItemDiscounts, totalAmount: finalTotalAmount, processedItems } = calculateDiscountTotals(null, orderItemsData);
 
       // 3.5. Comprehensive Credit Limit Check
       if (dto.paymentMethod === 'Credit') {
@@ -86,13 +105,13 @@ export class OrderService {
         });
         const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || inv.amount), 0);
 
-        const totalExposure = unpaidInvoiceTotal + totalAmount;
+        const totalExposure = unpaidInvoiceTotal + finalTotalAmount;
 
         if (totalExposure > client.credit_limit) {
           throw new BadRequestException(
             `Credit limit exceeded. Limit: £${client.credit_limit}, ` +
             `Unpaid Invoices: £${unpaidInvoiceTotal}, ` +
-            `New Order: £${totalAmount}. ` +
+            `New Order: £${finalTotalAmount}. ` +
             `Total Exposure: £${totalExposure}`
           );
         }
@@ -103,7 +122,9 @@ export class OrderService {
         client_id: client.id,
         status: 'pending',
         payment_method: dto.paymentMethod,
-        total_amount: totalAmount
+        total_amount: finalTotalAmount,
+        discount_amount: 0,
+        discount_percentage: null
       }, { transaction: t });
 
       await OrderActivityLog.create({
@@ -115,7 +136,7 @@ export class OrderService {
       }, { transaction: t });
 
       // 5. Create the Order Items
-      for (const itemData of orderItemsData) {
+      for (const itemData of processedItems) {
         await OrderItem.create({
           order_id: order.id,
           ...itemData
@@ -143,7 +164,7 @@ export class OrderService {
 
       const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
       const taxRate = 0.14;
-      const subtotal = totalAmount;
+      const subtotal = itemsSumAfterItemDiscounts;
       const taxAmount = subtotal * taxRate;
       const grandTotal = subtotal + taxAmount;
 

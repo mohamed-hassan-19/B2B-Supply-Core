@@ -1,6 +1,7 @@
 import { Controller, Post, Body, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiProperty } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { IsString, IsEmail } from 'class-validator';
 
@@ -19,6 +20,7 @@ export class AdminLoginDto {
 export class AdminAuthController {
   constructor(private authService: AuthService) {}
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @ApiOperation({ summary: 'Login as an Admin' })
   @ApiResponse({ status: 200, description: 'Successful login returns a JWT' })

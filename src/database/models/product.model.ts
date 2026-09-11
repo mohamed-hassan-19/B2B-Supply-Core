@@ -9,6 +9,8 @@ export class Product extends Model {
   declare images?: any;
   declare price: number;
   declare original_price?: number;
+  declare dozen_quantity?: number;
+  declare dozen_price?: number;
   declare stock_level: number;
   declare low_stock_threshold: number;
   declare is_active: boolean;
@@ -27,6 +29,8 @@ export const initProduct = (sequelize: any) => {
       images: { type: DataTypes.JSON },
       price: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       original_price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+      dozen_quantity: { type: DataTypes.INTEGER, allowNull: true },
+      dozen_price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
       stock_level: { type: DataTypes.INTEGER, defaultValue: 0 },
       low_stock_threshold: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       is_active: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },

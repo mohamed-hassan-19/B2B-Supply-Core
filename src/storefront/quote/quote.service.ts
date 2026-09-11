@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Quote, QuoteItem, Order, OrderItem, Product, Client, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
+import { Quote, QuoteItem, Client, Product, Order, OrderItem, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
 import { Op } from 'sequelize';
+import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
 import { PdfService } from '../../admin/invoice/pdf.service';
 
 @Injectable()
@@ -90,18 +91,26 @@ export class QuoteService {
         if (!product || !product.is_active) {
           throw new BadRequestException(`Product for Quote Item is unavailable`);
         }
+
+        if (qi.purchase_unit === 'dozen') {
+          if (qi.dozen_size_at_purchase && qi.requested_quantity % qi.dozen_size_at_purchase !== 0) {
+            throw new BadRequestException(`Requested quantity ${qi.requested_quantity} for dozen purchase of ${product.name} is not an exact multiple of its dozen size (${qi.dozen_size_at_purchase})`);
+          }
+        }
+
         if (product.stock_level < qi.requested_quantity) {
           throw new BadRequestException(`Insufficient stock for product: ${product.name}`);
         }
 
-        const itemTotal = Number(qi.quoted_price) * qi.requested_quantity;
-        totalAmount += itemTotal;
         orderItemsData.push({
           product_id: product.id,
           product_name: product.name,
           quantity: qi.requested_quantity,
           unit_price: qi.quoted_price,
-          total_price: itemTotal
+          purchase_unit: qi.purchase_unit,
+          dozen_size_at_purchase: qi.dozen_size_at_purchase,
+          discount_percentage: qi.discount_percentage,
+          discount_amount: qi.discount_amount
         });
 
         // Deduct new stock
@@ -113,8 +122,6 @@ export class QuoteService {
         await p.save({ transaction: t });
       }
 
-      // Apply quote discount
-      let discountAmount = 0;
       let discountPercentage = quote.discount_percentage;
       
       // Fallback to existing order discount only if quote has no discount specified
@@ -122,11 +129,7 @@ export class QuoteService {
         discountPercentage = existingOrder?.discount_percentage || null;
       }
       
-      if (discountPercentage) {
-        discountAmount = Math.round((totalAmount * discountPercentage / 100) * 100) / 100;
-      }
-      
-      const discountedTotal = totalAmount - discountAmount;
+      const { itemsSumAfterItemDiscounts, orderDiscountAmount: discountAmount, totalAmount: discountedTotal, processedItems: finalProcessedItems } = calculateDiscountTotals(discountPercentage, orderItemsData);
 
       // 4. Credit Check if Credit
       if (paymentMethod === 'Credit') {
@@ -171,7 +174,7 @@ export class QuoteService {
         await order.save({ transaction: t });
 
         await OrderItem.destroy({ where: { order_id: order.id }, transaction: t });
-        for (const itemData of orderItemsData) {
+        for (const itemData of finalProcessedItems) {
           await OrderItem.create({
             order_id: order.id,
             ...itemData
@@ -181,16 +184,15 @@ export class QuoteService {
         invoice = await Invoice.findOne({ where: { order_id: order.id }, transaction: t, lock: t.LOCK.UPDATE });
         if (invoice) {
           const taxRate = 0.14;
-          const subtotal = discountedTotal;
-          const taxAmount = subtotal * taxRate;
-          const grandTotal = subtotal + taxAmount;
+          const subtotal = itemsSumAfterItemDiscounts;
+          const taxAmount = discountedTotal * taxRate;
+          const grandTotal = discountedTotal + taxAmount;
 
           invoice.amount = grandTotal;
           invoice.subtotal = subtotal;
           invoice.tax_amount = taxAmount;
           invoice.grand_total = grandTotal;
           invoice.payment_method = paymentMethod;
-          // updatedAt will automatically be bumped
           await invoice.save({ transaction: t });
         }
       } else {
@@ -204,7 +206,7 @@ export class QuoteService {
           discount_percentage: discountPercentage
         }, { transaction: t });
 
-        for (const itemData of orderItemsData) {
+        for (const itemData of finalProcessedItems) {
           await OrderItem.create({
             order_id: order.id,
             ...itemData
@@ -229,9 +231,9 @@ export class QuoteService {
 
         const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
         const taxRate = 0.14;
-        const subtotal = totalAmount;
-        const taxAmount = subtotal * taxRate;
-        const grandTotal = subtotal + taxAmount;
+        const subtotal = itemsSumAfterItemDiscounts;
+        const taxAmount = discountedTotal * taxRate;
+        const grandTotal = discountedTotal + taxAmount;
 
         invoice = await Invoice.create({
           invoice_number: invoiceNumber,

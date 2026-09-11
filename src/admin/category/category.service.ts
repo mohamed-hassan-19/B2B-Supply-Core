@@ -4,10 +4,24 @@ import { CreateCategoryDto } from './category.dto';
 
 @Injectable()
 export class CategoryService {
-  async findAll() {
+  async findAll(includeInactive: boolean = false) {
+    const where = includeInactive ? {} : { is_active: true };
     return Category.findAll({
+      where,
       order: [['name', 'ASC']]
     });
+  }
+
+  async activate(id: number) {
+    const cat = await Category.findByPk(id);
+    if (!cat) throw new Error('Category not found');
+    return cat.update({ is_active: true });
+  }
+
+  async deactivate(id: number) {
+    const cat = await Category.findByPk(id);
+    if (!cat) throw new Error('Category not found');
+    return cat.update({ is_active: false });
   }
 
   async create(createCategoryDto: CreateCategoryDto) {
