@@ -20,3 +20,11 @@ export class UpdateClientCreditDto {
   @Min(0)
   credit_terms?: number;
 }
+
+export class UpdateClientMonthlyAverageDto {
+  @ApiProperty({ example: 50000, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  monthly_average_order_amount?: number;
+}

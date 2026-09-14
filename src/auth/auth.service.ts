@@ -54,6 +54,8 @@ export class AuthService {
       password_hash: password_hash,
       commercial_registration: data.commercial_registration,
       tax_registration: data.tax_registration,
+      phone: data.phone,
+      monthly_average_order_amount: data.monthly_average_order_amount,
       contact_details: {
         contact_name: data.contact_name,
         phone: data.contact_phone

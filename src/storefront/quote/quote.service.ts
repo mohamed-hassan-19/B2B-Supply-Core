@@ -247,7 +247,8 @@ export class QuoteService {
           payment_method: paymentMethod,
           sales_order_reference: `SO-${order.id}`,
           customer_tax_id: client.tax_registration || null,
-          payment_status: 'pending'
+          payment_status: 'pending',
+          due_date: new Date(Date.now() + (client.credit_terms || 0) * 24 * 60 * 60 * 1000)
         }, { transaction: t });
       }
 

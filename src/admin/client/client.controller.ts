@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { ClientService } from './client.service';
-import { UpdateClientStatusDto, UpdateClientCreditDto } from './client.dto';
+import { UpdateClientStatusDto, UpdateClientCreditDto, UpdateClientMonthlyAverageDto } from './client.dto';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -88,6 +88,13 @@ export class ClientController {
   @ApiOperation({ summary: 'Toggle client priority status' })
   updatePriority(@Param('id') id: string, @Body('is_priority') is_priority: boolean) {
     return this.clientService.updatePriority(+id, is_priority);
+  }
+
+  @Patch(':id/monthly-average')
+  @Roles('super_admin', 'sales', 'finance')
+  @ApiOperation({ summary: 'Update monthly average order amount' })
+  updateMonthlyAverage(@Param('id') id: string, @Body() body: UpdateClientMonthlyAverageDto) {
+    return this.clientService.updateMonthlyAverage(+id, body.monthly_average_order_amount ?? null);
   }
 
   @Post(':id/documents')

@@ -114,6 +114,12 @@ export class ClientService {
     return client.update({ is_priority });
   }
 
+  async updateMonthlyAverage(id: number, monthly_average: number | null) {
+    const client = await Client.findByPk(id);
+    if (!client) throw new NotFoundException(`Client with ID ${id} not found`);
+    return client.update({ monthly_average_order_amount: monthly_average });
+  }
+
   async uploadDocument(id: number, file: Express.Multer.File) {
     const client = await Client.findByPk(id);
     if (!client) throw new NotFoundException(`Client with ID ${id} not found`);

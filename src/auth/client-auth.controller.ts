@@ -3,7 +3,7 @@ import { AuthService } from './auth.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiProperty } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import { IsString, IsEmail, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsNumber, Min } from 'class-validator';
 
 export class ClientLoginDto {
   @ApiProperty({ example: 'client@example.com' })
@@ -35,6 +35,16 @@ export class ClientRegisterDto {
   @ApiProperty({ example: 'TAX987654', required: true })
   @IsString()
   tax_registration!: string;
+
+  @ApiProperty({ example: '01000000000', required: true })
+  @IsString()
+  phone!: string;
+
+  @ApiProperty({ example: 50000, required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  monthly_average_order_amount?: number;
 
   @ApiProperty({ example: 'John Doe', required: true })
   @IsString()

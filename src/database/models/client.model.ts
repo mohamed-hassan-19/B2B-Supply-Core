@@ -13,6 +13,7 @@ export class Client extends Model {
   declare credit_limit?: number;
   declare credit_terms?: number;
   declare is_priority: boolean;
+  declare monthly_average_order_amount?: number;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -33,6 +34,13 @@ export const initClient = (sequelize: any) => {
       credit_limit: { type: DataTypes.DECIMAL(10, 2) },
       credit_terms: { type: DataTypes.INTEGER },
       is_priority: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      monthly_average_order_amount: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: true,
+        validate: {
+          min: 0
+        }
+      },
     },
     { sequelize, modelName: 'Client' }
   );
