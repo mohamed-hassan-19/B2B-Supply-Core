@@ -27,7 +27,7 @@ export class QuoteService {
     
     // Add specific includes if needed based on entity
     
-    queryOptions.include = [{ model: require('../../database/models').Client, attributes: ['company_name', 'is_priority'] }];
+    queryOptions.include = [ { model: require('../../database/models').Client, attributes: ['company_name', 'is_priority'] }, { model: require('../../database/models').QuoteItem } ];
     
     
     
@@ -42,7 +42,7 @@ export class QuoteService {
     const offset = (page - 1) * limit;
 
     queryOptions.limit = limit;
-    queryOptions.offset = offset;
+    queryOptions.offset = offset; queryOptions.distinct = true;
 
     const { count, rows } = await Quote.findAndCountAll(queryOptions);
 
@@ -54,7 +54,26 @@ export class QuoteService {
     };
   }
 
-  async createQuote(clientId: number, items: { productId: number; quantity: number; quotedPrice: number, purchase_unit?: 'single' | 'dozen', discount_percentage?: number }[], validUntil?: string, discount_percentage?: number) {
+  async findOne(id: number) {
+    const quote = await Quote.findByPk(id, {
+      include: [
+        { model: require('../../database/models').Client, attributes: ['company_name', 'is_priority', 'email'] },
+        { 
+          model: require('../../database/models').QuoteItem,
+          include: [{ model: require('../../database/models').Product, attributes: ['name', 'price'] }]
+        },
+        { 
+          model: require('../../database/models').Order,
+          as: 'RelatedOrder',
+          include: [{ model: require('../../database/models').OrderItem }]
+        }
+      ]
+    });
+    if (!quote) throw new NotFoundException(`Quote ${id} not found`);
+    return quote;
+  }
+
+  async createQuote(clientId: number, items: { productId?: number | null; quantity: number; quotedPrice: number, purchase_unit?: 'single' | 'dozen', discount_percentage?: number, custom_item_name?: string, custom_item_description?: string, is_cancelled?: boolean, original_order_item_id?: number | null }[], validUntil?: string, discount_percentage?: number) {
     const client = await Client.findByPk(clientId);
     if (!client) {
       throw new NotFoundException(`Client with ID ${clientId} not found`);
@@ -77,6 +96,23 @@ export class QuoteService {
       const quoteItemsData: any[] = [];
 
       for (const item of items) {
+        if (!item.productId) {
+          quoteItemsData.push({
+            quote_id: quote.id,
+            product_id: null,
+            original_order_item_id: item.original_order_item_id || null,
+            custom_item_name: item.custom_item_name,
+            custom_item_description: item.custom_item_description,
+            requested_quantity: item.quantity,
+            quoted_price: item.quotedPrice,
+            purchase_unit: item.purchase_unit || 'single',
+            dozen_size_at_purchase: null,
+            discount_percentage: item.discount_percentage || null,
+            is_cancelled: item.is_cancelled || false
+          });
+          continue;
+        }
+
         const product = await Product.findByPk(item.productId, { transaction: t });
         if (!product || !product.is_active) {
           throw new BadRequestException(`Active product with ID ${item.productId} not found`);
@@ -94,11 +130,15 @@ export class QuoteService {
         quoteItemsData.push({
           quote_id: quote.id,
           product_id: product.id,
+          original_order_item_id: item.original_order_item_id || null,
+          custom_item_name: item.custom_item_name,
+          custom_item_description: item.custom_item_description,
           requested_quantity: item.quantity,
           quoted_price: item.quotedPrice,
           purchase_unit: item.purchase_unit || 'single',
           dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null,
-          discount_percentage: item.discount_percentage || null
+          discount_percentage: item.discount_percentage || null,
+          is_cancelled: item.is_cancelled || false
         });
       }
 
@@ -147,6 +187,23 @@ export class QuoteService {
         await QuoteItem.destroy({ where: { quote_id: id }, transaction: t });
         
         for (const item of updateQuoteDto.items) {
+          if (!item.productId) {
+            itemsForCalculation.push({
+              quote_id: quote.id,
+              product_id: null,
+              original_order_item_id: item.original_order_item_id || null,
+              custom_item_name: item.custom_item_name,
+              custom_item_description: item.custom_item_description,
+              requested_quantity: item.quantity,
+              quoted_price: item.quotedPrice,
+              purchase_unit: item.purchase_unit || 'single',
+              dozen_size_at_purchase: null,
+              discount_percentage: item.discount_percentage || null,
+              is_cancelled: item.is_cancelled || false
+            });
+            continue;
+          }
+
           const product = await Product.findByPk(item.productId, { transaction: t });
           if (!product || !product.is_active) {
             throw new BadRequestException(`Product ${item.productId} is unavailable`);
@@ -164,11 +221,15 @@ export class QuoteService {
           itemsForCalculation.push({
             quote_id: quote.id,
             product_id: item.productId,
+            original_order_item_id: item.original_order_item_id || null,
+            custom_item_name: item.custom_item_name,
+            custom_item_description: item.custom_item_description,
             requested_quantity: item.quantity,
             quoted_price: item.quotedPrice || product.price,
             purchase_unit: item.purchase_unit || 'single',
             dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null,
-            discount_percentage: item.discount_percentage || null
+            discount_percentage: item.discount_percentage || null,
+            is_cancelled: item.is_cancelled || false
           });
         }
       } else {

@@ -37,6 +37,13 @@ export class QuoteController {
     });
   }
 
+  @Get(':id')
+  @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
+  @ApiOperation({ summary: 'Get quote details' })
+  findOne(@Param('id') id: string) {
+    return this.quoteService.findOne(parseInt(id, 10));
+  }
+
   @Post()
   @Roles('super_admin', 'sales', 'operator')
   @ApiOperation({ summary: 'Draft a new quote' })

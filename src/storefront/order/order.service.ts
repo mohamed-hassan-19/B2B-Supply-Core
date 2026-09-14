@@ -130,7 +130,7 @@ export class OrderService {
       await OrderActivityLog.create({
         order_id: order.id,
         action_type: 'created',
-        actor: 'Customer',
+        actor: client.company_name || 'Customer',
         to_status: 'pending',
         description: 'Order submitted by customer'
       }, { transaction: t });
