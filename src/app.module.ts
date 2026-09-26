@@ -15,6 +15,7 @@ import { CategoryModule } from './admin/category/category.module';
 import { ReportsModule } from './admin/reports/reports.module';
 import { IncidentModule } from './admin/incident/incident.module';
 import { PackingMaterialModule } from './admin/packing-material/packing-material.module';
+import { AdminPurchaseModule } from './admin/purchase/purchase.module';
 import * as dotenv from 'dotenv';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -73,7 +74,7 @@ const databaseProvider = {
       ttl: 60000,
       limit: 5,
     }]),
-    AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule, CategoryModule, ReportsModule, IncidentModule, PackingMaterialModule
+    AuthModule, ProductModule, ClientModule, StorefrontModule, OrderModule, InvoiceModule, QuoteModule, AdminUserModule, CategoryModule, ReportsModule, IncidentModule, PackingMaterialModule, AdminPurchaseModule
   ],
   controllers: [AppController],
   providers: [

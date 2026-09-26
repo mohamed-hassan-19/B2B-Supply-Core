@@ -1,3 +1,4 @@
+import { Purchase, initPurchase } from './purchase.model';
 import { Sequelize } from 'sequelize';
 import { Client, initClient } from './client.model';
 import { AdminUser, initAdminUser } from './admin-user.model';
@@ -32,6 +33,7 @@ export const setupModels = (sequelize: Sequelize) => {
   initClientDocument(sequelize);
   initPackingMaterial(sequelize);
   initOrderPackingMaterialUsage(sequelize);
+  initPurchase(sequelize);
 
   // Associations
   
@@ -100,6 +102,12 @@ export const setupModels = (sequelize: Sequelize) => {
   OrderPackingMaterialUsage.belongsTo(PackingMaterial, { foreignKey: 'packing_material_id' });
   AdminUser.hasMany(OrderPackingMaterialUsage, { foreignKey: 'used_by_id' });
   OrderPackingMaterialUsage.belongsTo(AdminUser, { foreignKey: 'used_by_id' });
+
+  // Purchases
+  Product.hasMany(Purchase, { foreignKey: 'product_id' });
+  Purchase.belongsTo(Product, { foreignKey: 'product_id' });
+  AdminUser.hasMany(Purchase, { foreignKey: 'created_by' });
+  Purchase.belongsTo(AdminUser, { foreignKey: 'created_by' });
 };
 
 export {
@@ -117,5 +125,6 @@ export {
   Incident,
   ClientDocument,
   PackingMaterial,
-  OrderPackingMaterialUsage
+  OrderPackingMaterialUsage,
+  Purchase
 };

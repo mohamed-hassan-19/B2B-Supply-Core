@@ -7,7 +7,7 @@ export class Product extends Model {
   declare category_id?: number;
   declare Category?: any; // To allow include
   declare images?: any;
-  declare price: number;
+  declare price: number | null;
   declare original_price?: number;
   declare dozen_quantity?: number;
   declare dozen_price?: number;
@@ -27,7 +27,7 @@ export const initProduct = (sequelize: any) => {
       description: { type: DataTypes.TEXT },
       category_id: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'Categories', key: 'id' } },
       images: { type: DataTypes.JSON },
-      price: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+      price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
       original_price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
       dozen_quantity: { type: DataTypes.INTEGER, allowNull: true },
       dozen_price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
