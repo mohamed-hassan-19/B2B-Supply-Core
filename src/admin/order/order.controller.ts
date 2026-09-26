@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { RecordPackingMaterialDto, CreateManualOrderDto } from './order.dto';
 
 @ApiTags('Admin Orders')
 @ApiBearerAuth()
@@ -11,6 +12,14 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 @Controller('api/admin/orders')
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
+
+  
+  @Post('create-manual')
+  @Roles('super_admin', 'sales')
+  @ApiOperation({ summary: 'Create a manual order on behalf of a client' })
+  async createManualOrder(@Body() dto: CreateManualOrderDto, @Request() req: any) {
+    return this.orderService.createManualOrder(dto, req.user);
+  }
 
   @Get()
   @Roles('super_admin', 'sales', 'warehouse', 'finance', 'content', 'operator')
@@ -115,5 +124,12 @@ export class OrderController {
   @ApiOperation({ summary: 'Create a revision quote for an existing order' })
   reviseOrder(@Param('id') id: string, @Request() req: any) {
     return this.orderService.reviseOrder(+id, req.user);
+  }
+
+  @Post(':id/packing-materials')
+  @Roles('super_admin', 'operator')
+  @ApiOperation({ summary: 'Record packing material used for an order' })
+  recordPackingMaterial(@Param('id') id: string, @Body() dto: RecordPackingMaterialDto, @Request() req: any) {
+    return this.orderService.recordPackingMaterial(+id, dto, req.user);
   }
 }

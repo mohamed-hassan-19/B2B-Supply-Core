@@ -3,7 +3,7 @@ import { Model, DataTypes } from 'sequelize';
 export class OrderActivityLog extends Model {
   declare id: number;
   declare order_id: number;
-  declare action_type: 'created' | 'status_changed' | 'discount_changed' | 'revision_proposed' | 'revision_accepted' | 'revision_rejected' | 'incident_raised' | 'incident_resolved';
+  declare action_type: 'created' | 'status_changed' | 'discount_changed' | 'revision_proposed' | 'revision_accepted' | 'revision_rejected' | 'incident_raised' | 'incident_resolved' | 'item_cancelled' | 'packing_material_used' | 'created_manually';
   declare actor: string;
   declare from_status: string | null;
   declare to_status: string | null;
@@ -28,7 +28,8 @@ export const initOrderActivityLog = (sequelize: any) => {
           'revision_rejected',
           'incident_raised',
           'incident_resolved',
-          'item_cancelled'
+          'item_cancelled',
+          'packing_material_used', 'created_manually'
         ), 
         allowNull: false 
       },

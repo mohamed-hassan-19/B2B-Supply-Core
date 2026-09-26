@@ -1,10 +1,55 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Order, OrderItem, Product, Client, Invoice, Quote, QuoteItem, OrderActivityLog } from '../../database/models';
+import { Order, OrderItem, Product, Client, Invoice, Quote, QuoteItem, OrderActivityLog, PackingMaterial, OrderPackingMaterialUsage, AdminUser } from '../../database/models';
 import { Op } from 'sequelize';
+import { executeOrderTransaction, CoreOrderItemData } from '../../common/utils/order-core.util';
+import { CreateManualOrderDto } from './order.dto';
+
 import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
 
 @Injectable()
 export class OrderService {
+  async createManualOrder(dto: CreateManualOrderDto, user: any) {
+    if (!Product.sequelize) throw new Error('Sequelize not found');
+    const t = await Product.sequelize.transaction();
+    try {
+      const client = await Client.findByPk(dto.clientId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!client || client.status !== 'approved') {
+        throw new BadRequestException('Client must be approved to place orders');
+      }
+
+      // Explicitly reject user-supplied price for catalog items per instructions
+      const coreItems: CoreOrderItemData[] = dto.items.map(i => {
+        if (i.productId) {
+           return {
+             ...i,
+             unitPrice: undefined // ALWAYS derived by core!
+           } as CoreOrderItemData;
+        }
+        return i as CoreOrderItemData; // Custom items keep their unitPrice
+      });
+
+      const order = await executeOrderTransaction({
+        client,
+        items: coreItems,
+        paymentMethod: dto.paymentMethod,
+        discountPercentage: dto.discountPercentage,
+        orderStatus: 'approved',
+        actor: user.name || 'Sales',
+        actionType: 'created_manually',
+        description: 'Manual order created by Sales',
+        source: dto.source,
+        notes: dto.notes,
+        transaction: t
+      });
+
+      await t.commit();
+      return order;
+    } catch (err) {
+      await t.rollback();
+      throw err;
+    }
+  }
+
   async recalculateOrder(order: any, items: any[], t: any) {
     const { itemsSumAfterItemDiscounts, orderDiscountAmount, totalAmount, processedItems } = calculateDiscountTotals(order.discount_percentage, items);
     
@@ -98,11 +143,21 @@ export class OrderService {
     const client = await Client.findByPk(order.client_id, { attributes: ['id', 'company_name', 'email'] });
     const activity_logs = await OrderActivityLog.findAll({ where: { order_id: id }, order: [['createdAt', 'ASC']] });
     
+    const packing_material_usages = await OrderPackingMaterialUsage.findAll({ 
+      where: { order_id: id },
+      include: [
+        { model: PackingMaterial, attributes: ['id', 'name', 'category'] },
+        { model: AdminUser, attributes: ['id', 'name', 'email'] }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
     return {
       order,
       client,
       items,
-      activity_logs
+      activity_logs,
+      packing_material_usages
     };
   }
 
@@ -110,6 +165,10 @@ export class OrderService {
     const order = await Order.findByPk(id);
     if (!order) {
       throw new NotFoundException(`Order with ID ${id} not found`);
+    }
+
+    if (order.status === nextStatus) {
+      return order; // Idempotent: already in the desired state
     }
 
     if (!allowedCurrentStatuses.includes(order.status)) {
@@ -413,6 +472,54 @@ export class OrderService {
 
       await t.commit();
       return order;
+    } catch (e) {
+      await t.rollback();
+      throw e;
+    }
+  }
+
+  async recordPackingMaterial(orderId: number, dto: { packing_material_id: number, quantity_used: number }, user: any) {
+    const order = await Order.findByPk(orderId);
+    if (!order) throw new NotFoundException('Order not found');
+
+    const t = await Order.sequelize!.transaction();
+    try {
+      const material = await PackingMaterial.findByPk(dto.packing_material_id, {
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+
+      if (!material) {
+        throw new NotFoundException('Packing material not found');
+      }
+
+      material.stock_quantity -= dto.quantity_used;
+      await material.save({ transaction: t });
+
+      await OrderPackingMaterialUsage.create({
+        order_id: orderId,
+        packing_material_id: material.id,
+        quantity_used: dto.quantity_used,
+        used_by_id: user.id
+      }, { transaction: t });
+
+      await OrderActivityLog.create({
+        order_id: orderId,
+        action_type: 'packing_material_used',
+        actor: user.name || user.id.toString(),
+        description: `Used ${dto.quantity_used}x ${material.name}`
+      }, { transaction: t });
+
+      await t.commit();
+
+      const warning = material.stock_quantity < 0 
+        ? `${material.name} stock is now ${material.stock_quantity}`
+        : null;
+
+      return {
+        success: true,
+        warning
+      };
     } catch (e) {
       await t.rollback();
       throw e;

@@ -1,0 +1,12 @@
+  // Order Activity Log
+  const logDesc = source ? `${description} (Source: ${source})` + (notes ? ` - Notes: ${notes}` : ``) : (notes ? `${description} - Notes: ${notes}` : description);
+  await OrderActivityLog.create({
+    order_id: order.id,
+    action_type: actionType as any,
+    actor: actor,
+    to_status: existingOrder ? undefined : orderStatus,
+    description: logDesc
+  }, { transaction: t });
+
+  return order;
+}

@@ -1,9 +1,8 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Sequelize, Op } from 'sequelize';
-import { Client, Product, Order, OrderItem, Invoice, InvoiceSequence, OrderActivityLog } from '../../database/models';
-import { calculateDiscountTotals } from '../../common/utils/discount-calculator.util';
+import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Client, Product, Order, OrderItem } from '../../database/models';
 import { CreateOrderDto } from './order.dto';
 import { PdfService } from '../../admin/invoice/pdf.service';
+import { executeOrderTransaction, CoreOrderItemData } from '../../common/utils/order-core.util';
 
 @Injectable()
 export class OrderService {
@@ -16,7 +15,6 @@ export class OrderService {
     const t = await Product.sequelize.transaction();
 
     try {
-      // 1. Validate Client Status and Payment Eligibility
       const client = await Client.findByPk(clientId, { transaction: t, lock: t.LOCK.UPDATE });
       if (!client) {
         throw new NotFoundException('Client not found');
@@ -26,175 +24,32 @@ export class OrderService {
         throw new ForbiddenException(`Client account is ${client.status}. Only approved clients can place orders.`);
       }
 
-      let totalAmount = 0;
-      const orderItemsData: any[] = [];
+      // Defense in depth: Mapped explicitly, NEVER accepting unitPrice from public DTO
+      const coreItems: CoreOrderItemData[] = dto.items.map(i => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        purchaseUnit: i.purchase_unit || 'single',
+        unitPrice: undefined // ALWAYS derived by core!
+      }));
 
-      // 2. Process Items and Lock Rows
-      const productIds = dto.items.map(i => i.productId).sort((a, b) => a - b);
-      
-      const products = await Product.findAll({
-        where: { id: productIds },
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
-
-      const productMap = new Map<number, Product>();
-      products.forEach(p => productMap.set(p.id, p));
-
-      // 3. Verify Stock and Build Order Items
-      for (const item of dto.items) {
-        const product = productMap.get(item.productId);
-        
-        if (!product) {
-          throw new BadRequestException(`Product with ID ${item.productId} does not exist`);
-        }
-        
-        if (!product.is_active) {
-          throw new BadRequestException(`Product ${product.name} is no longer active`);
-        }
-
-        if (item.purchase_unit === 'dozen') {
-          if (!product.dozen_quantity || !product.dozen_price) {
-            throw new BadRequestException(`Product ${product.name} cannot be bought by the dozen`);
-          }
-          if (item.quantity % product.dozen_quantity !== 0) {
-            throw new BadRequestException(`Requested quantity ${item.quantity} for dozen purchase of ${product.name} is not an exact multiple of its dozen size (${product.dozen_quantity})`);
-          }
-        }
-
-        if (product.stock_level < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for product ${product.name}. Requested: ${item.quantity}, Available: ${product.stock_level}`);
-        }
-
-        let effectiveUnitPrice = Number(product.price);
-        if (item.purchase_unit === 'dozen' && product.dozen_quantity && product.dozen_price) {
-          effectiveUnitPrice = Number(product.dozen_price) / product.dozen_quantity;
-        }
-
-        totalAmount += effectiveUnitPrice * item.quantity;
-
-        orderItemsData.push({
-          product_id: product.id,
-          product_name: product.name,
-          quantity: item.quantity,
-          unit_price: effectiveUnitPrice,
-          purchase_unit: item.purchase_unit || 'single',
-          dozen_size_at_purchase: item.purchase_unit === 'dozen' ? product.dozen_quantity : null
-        });
-
-        product.stock_level -= item.quantity;
-        await product.save({ transaction: t });
-      }
-
-      const { itemsSumAfterItemDiscounts, totalAmount: finalTotalAmount, processedItems } = calculateDiscountTotals(null, orderItemsData);
-
-      // 3.5. Comprehensive Credit Limit Check
-      if (dto.paymentMethod === 'Credit') {
-        if (!client.credit_limit || client.credit_limit <= 0) {
-          throw new BadRequestException('Client is not eligible for Credit payment method. No credit limit assigned.');
-        }
-
-        const unpaidInvoices = await Invoice.findAll({
-          where: { payment_status: { [Op.in]: ['pending', 'overdue'] } },
-          include: [{
-            model: Order,
-            where: { client_id: client.id },
-            attributes: []
-          }],
-          transaction: t
-        });
-        const unpaidInvoiceTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || inv.amount), 0);
-
-        const totalExposure = unpaidInvoiceTotal + finalTotalAmount;
-
-        if (totalExposure > client.credit_limit) {
-          throw new BadRequestException(
-            `Credit limit exceeded. Limit: £${client.credit_limit}, ` +
-            `Unpaid Invoices: £${unpaidInvoiceTotal}, ` +
-            `New Order: £${finalTotalAmount}. ` +
-            `Total Exposure: £${totalExposure}`
-          );
-        }
-      }
-
-      // 4. Create the Order
-      const order = await Order.create({
-        client_id: client.id,
-        status: 'pending',
-        payment_method: dto.paymentMethod,
-        total_amount: finalTotalAmount,
-        discount_amount: 0,
-        discount_percentage: null
-      }, { transaction: t });
-
-      await OrderActivityLog.create({
-        order_id: order.id,
-        action_type: 'created',
+      const order = await executeOrderTransaction({
+        client,
+        items: coreItems,
+        paymentMethod: dto.paymentMethod,
+        orderStatus: 'pending',
         actor: client.company_name || 'Customer',
-        to_status: 'pending',
-        description: 'Order submitted by customer'
-      }, { transaction: t });
-
-      // 5. Create the Order Items
-      for (const itemData of processedItems) {
-        await OrderItem.create({
-          order_id: order.id,
-          ...itemData
-        }, { transaction: t });
-      }
-
-      // 6. Create the Invoice automatically
-      const currentYear = new Date().getFullYear();
-      
-      // Upsert sequence row securely
-      await InvoiceSequence.findOrCreate({
-        where: { year: currentYear },
-        defaults: { last_value: 0 },
+        actionType: 'created',
+        description: 'Order submitted by customer',
         transaction: t
       });
-      const sequence = await InvoiceSequence.findOne({
-        where: { year: currentYear },
-        lock: t.LOCK.UPDATE,
-        transaction: t
-      });
-      
-      const nextVal = sequence!.last_value + 1;
-      sequence!.last_value = nextVal;
-      await sequence!.save({ transaction: t });
-
-      const invoiceNumber = `INV-${currentYear}-${String(nextVal).padStart(4, '0')}`;
-      const taxRate = 0.14;
-      const subtotal = itemsSumAfterItemDiscounts;
-      const taxAmount = subtotal * taxRate;
-      const grandTotal = subtotal + taxAmount;
-
-      const invoice = await Invoice.create({
-        invoice_number: invoiceNumber,
-        order_id: order.id,
-        amount: grandTotal,
-        subtotal: subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        grand_total: grandTotal,
-        currency: 'EGP',
-        payment_method: dto.paymentMethod,
-        sales_order_reference: `SO-${order.id}`,
-        customer_tax_id: client.tax_registration || null,
-        payment_status: 'pending',
-        due_date: new Date(Date.now() + (client.credit_terms || 0) * 24 * 60 * 60 * 1000)
-      }, { transaction: t });
 
       await t.commit();
-      
-      // Removed automatic PDF generation to save server space
       
       return order;
     } catch (error) {
       try {
         await t.rollback();
-      } catch (rollbackError) {
-        // Ignore rollback error if already committed/rolled back
-      }
+      } catch (rollbackError) {}
       throw error;
     }
   }

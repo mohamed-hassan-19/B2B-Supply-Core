@@ -144,7 +144,7 @@ export class PdfService {
 
         // Footer
         doc.fontSize(10).text('Thank you for your business. Payment is due within the agreed terms.', 50, yPosition + 60, { align: 'center', width: 500 });
-        doc.text('For inquiries, please contact support@listosupply.com.', 50, yPosition + 75, { align: 'center', width: 500 });
+        doc.text('For inquiries, please contact commercial@masnood.com.', 50, yPosition + 75, { align: 'center', width: 500 });
 
         doc.end();
 

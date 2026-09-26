@@ -12,6 +12,8 @@ import { Category, initCategory } from './category.model';
 import { OrderActivityLog, initOrderActivityLog } from './order-activity-log.model';
 import { Incident, initIncident } from './incident.model';
 import { ClientDocument, initClientDocument } from './client-document.model';
+import { PackingMaterial, initPackingMaterial } from './packing-material.model';
+import { OrderPackingMaterialUsage, initOrderPackingMaterialUsage } from './order-packing-material-usage.model';
 
 export const setupModels = (sequelize: Sequelize) => {
   // Init models
@@ -28,8 +30,10 @@ export const setupModels = (sequelize: Sequelize) => {
   initOrderActivityLog(sequelize);
   initIncident(sequelize);
   initClientDocument(sequelize);
+  initPackingMaterial(sequelize);
+  initOrderPackingMaterialUsage(sequelize);
 
-  // Setup associations
+  // Associations
   
   // Client <-> Order
   Client.hasMany(Order, { foreignKey: 'client_id' });
@@ -89,6 +93,13 @@ export const setupModels = (sequelize: Sequelize) => {
   // Client <-> ClientDocument
   Client.hasMany(ClientDocument, { foreignKey: 'client_id' });
   ClientDocument.belongsTo(Client, { foreignKey: 'client_id' });
+
+  Order.hasMany(OrderPackingMaterialUsage, { foreignKey: 'order_id' });
+  OrderPackingMaterialUsage.belongsTo(Order, { foreignKey: 'order_id' });
+  PackingMaterial.hasMany(OrderPackingMaterialUsage, { foreignKey: 'packing_material_id' });
+  OrderPackingMaterialUsage.belongsTo(PackingMaterial, { foreignKey: 'packing_material_id' });
+  AdminUser.hasMany(OrderPackingMaterialUsage, { foreignKey: 'used_by_id' });
+  OrderPackingMaterialUsage.belongsTo(AdminUser, { foreignKey: 'used_by_id' });
 };
 
 export {
@@ -104,5 +115,7 @@ export {
   InvoiceSequence,
   OrderActivityLog,
   Incident,
-  ClientDocument
+  ClientDocument,
+  PackingMaterial,
+  OrderPackingMaterialUsage
 };
